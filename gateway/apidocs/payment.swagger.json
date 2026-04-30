@@ -1,0 +1,520 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Regional Payment Gateway API",
+    "description": "Extend Service Extension bridging AGS economy to regional payment providers via a Generic HTTP Adapter.",
+    "version": "1.0"
+  },
+  "basePath": "/payment",
+  "schemes": ["http", "https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "Bearer": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header"
+    }
+  },
+  "paths": {
+    "/v1/payment/intent": {
+      "post": {
+        "summary": "Create a payment intent",
+        "description": "Initiates a payment flow for an AGS store item. Returns a payment URL or QR code.",
+        "operationId": "PaymentService_CreatePaymentIntent",
+        "tags": ["PaymentService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {"$ref": "#/definitions/CreatePaymentIntentRequest"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/CreatePaymentIntentResponse"}
+          },
+          "400": {"description": "Bad Request"},
+          "401": {"description": "Unauthorized"},
+          "429": {"description": "Too Many Requests — concurrent intent limit reached"},
+          "503": {"description": "Payment provider unavailable"}
+        }
+      }
+    },
+    "/v1/payment/transaction/{transactionId}": {
+      "get": {
+        "summary": "Get transaction status",
+        "description": "Returns the current status of a payment transaction.",
+        "operationId": "PaymentService_GetTransaction",
+        "tags": ["PaymentService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {
+            "name": "transactionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/TransactionResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"}
+        }
+      }
+    },
+    "/v1/webhook/{providerName}": {
+      "post": {
+        "summary": "Receive provider webhook",
+        "description": "Public endpoint for payment provider webhook delivery. Authenticated via provider signature.",
+        "operationId": "WebhookService_HandleWebhook",
+        "tags": ["WebhookService"],
+        "parameters": [
+          {
+            "name": "providerName",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Provider slug, e.g. dana, xendit, komoju, generic_midtrans, or generic_dana"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {"type": "object", "description": "Raw provider webhook payload"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/WebhookResponse"}
+          },
+          "400": {"description": "Invalid signature or payload"},
+          "500": {"description": "Fulfillment failed — provider should retry"}
+        }
+      }
+    },
+    "/v1/payment/checkout": {
+      "post": {
+        "summary": "Create a hosted checkout session",
+        "description": "Creates a pending transaction and a short-lived session, then returns a checkout URL. The player opens the URL in a browser to select a payment method. No provider selection is needed from the game client.",
+        "operationId": "PaymentService_CreateCheckoutSession",
+        "tags": ["PaymentService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {"$ref": "#/definitions/CreateCheckoutSessionRequest"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/CreateCheckoutSessionResponse"}
+          },
+          "400": {"description": "Bad Request"},
+          "401": {"description": "Unauthorized"}
+        }
+      }
+    },
+    "/v1/payment/transaction/by-client-order/{clientOrderId}": {
+      "get": {
+        "summary": "Get transaction by client order ID",
+        "description": "Looks up a transaction using the client-provided idempotency key. Useful as a fallback when recovering an existing checkout request.",
+        "operationId": "PaymentService_GetTransactionByClientOrder",
+        "tags": ["PaymentService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {
+            "name": "clientOrderId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/TransactionResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"}
+        }
+      }
+    },
+    "/v1/admin/namespace/{namespace}/transactions": {
+      "get": {
+        "summary": "List transactions",
+        "description": "List payment transactions with optional filters. Cursor-based pagination.",
+        "operationId": "AdminService_ListTransactions",
+        "tags": ["AdminService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {"name": "userId", "in": "query", "type": "string"},
+          {"name": "statusFilter", "in": "query", "type": "string", "enum": ["PENDING","FULFILLING","FULFILLED","FAILED","CANCELED","EXPIRED"]},
+          {"name": "provider", "in": "query", "type": "string"},
+          {"name": "pageSize", "in": "query", "type": "integer", "format": "int32"},
+          {"name": "cursor", "in": "query", "type": "string"},
+          {"name": "search", "in": "query", "type": "string", "description": "Exact match against transaction ID, provider transaction ID, or item ID"}
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/ListTransactionsResponse"}
+          },
+          "401": {"description": "Unauthorized"}
+        }
+      }
+    },
+    "/v1/admin/namespace/{namespace}/transactions/{transactionId}": {
+      "get": {
+        "summary": "Get transaction detail",
+        "description": "Get full transaction detail including live provider status.",
+        "operationId": "AdminService_GetTransactionDetail",
+        "tags": ["AdminService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {"name": "transactionId", "in": "path", "required": true, "type": "string"}
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/TransactionResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"}
+        }
+      }
+    },
+    "/v1/admin/namespace/{namespace}/transactions/{transactionId}/refund": {
+      "post": {
+        "summary": "Refund a transaction",
+        "description": "Executes a refund at the provider and reverses the AGS fulfillment. Idempotent — safe to retry.",
+        "operationId": "AdminService_Refund",
+        "tags": ["AdminService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {"name": "transactionId", "in": "path", "required": true, "type": "string"},
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {"$ref": "#/definitions/RefundRequest"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/RefundResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"}
+        }
+      }
+    },
+    "/v1/admin/namespace/{namespace}/transactions/{transactionId}/sync": {
+      "post": {
+        "summary": "Sync a single transaction",
+        "description": "Queries the provider for the latest payment/refund status and reconciles the transaction record. Idempotent — safe to retry.",
+        "operationId": "AdminService_SyncTransaction",
+        "tags": ["AdminService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {"name": "transactionId", "in": "path", "required": true, "type": "string"}
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/SyncTransactionResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"}
+        }
+      }
+    },
+    "/v1/admin/namespace/{namespace}/transactions/sync": {
+      "post": {
+        "summary": "Sync multiple transactions",
+        "description": "Queries the provider for the latest status of multiple transactions matching the given filters and reconciles each record. Cursor-based pagination.",
+        "operationId": "AdminService_SyncTransactions",
+        "tags": ["AdminService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {
+            "name": "body",
+            "in": "body",
+            "required": false,
+            "schema": {"$ref": "#/definitions/SyncTransactionsRequest"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/SyncTransactionsResponse"}
+          },
+          "401": {"description": "Unauthorized"}
+        }
+      }
+    },
+    "/v1/public/namespace/{namespace}/users/me/transactions/{transactionId}/sync": {
+      "post": {
+        "summary": "Sync my transaction",
+        "description": "Queries the provider for the latest status of a specific transaction belonging to the caller and reconciles the record.",
+        "operationId": "PublicService_SyncMyTransaction",
+        "tags": ["PublicService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {"name": "transactionId", "in": "path", "required": true, "type": "string"}
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/SyncTransactionResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"}
+        }
+      }
+    },
+    "/v1/public/namespace/{namespace}/users/me/transactions/{transactionId}/cancel": {
+      "post": {
+        "summary": "Cancel my transaction",
+        "description": "Cancels a pending transaction belonging to the caller, including provider-side cancellation when supported.",
+        "operationId": "PublicService_CancelMyTransaction",
+        "tags": ["PublicService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {"name": "transactionId", "in": "path", "required": true, "type": "string"},
+          {
+            "name": "body",
+            "in": "body",
+            "required": false,
+            "schema": {"$ref": "#/definitions/CancelTransactionRequest"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/CancelTransactionResponse"}
+          },
+          "401": {"description": "Unauthorized"},
+          "404": {"description": "Transaction not found"},
+          "412": {"description": "Transaction is not eligible for cancellation"},
+          "503": {"description": "Provider cancellation failed or is still pending"}
+        }
+      }
+    },
+    "/v1/public/namespace/{namespace}/users/me/transactions/sync": {
+      "post": {
+        "summary": "Sync my transactions",
+        "description": "Queries the provider for the latest status of all transactions belonging to the caller and reconciles each record. Cursor-based pagination.",
+        "operationId": "PublicService_SyncMyTransactions",
+        "tags": ["PublicService"],
+        "security": [{"Bearer": []}],
+        "parameters": [
+          {"name": "namespace", "in": "path", "required": true, "type": "string"},
+          {
+            "name": "body",
+            "in": "body",
+            "required": false,
+            "schema": {"$ref": "#/definitions/PublicSyncTransactionsRequest"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {"$ref": "#/definitions/SyncTransactionsResponse"}
+          },
+          "401": {"description": "Unauthorized"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "CreatePaymentIntentRequest": {
+      "type": "object",
+      "required": ["provider", "itemId", "quantity", "clientOrderId"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["PROVIDER_UNSPECIFIED", "PROVIDER_CUSTOM", "PROVIDER_DANA", "PROVIDER_XENDIT", "PROVIDER_KOMOJU"],
+          "description": "Use PROVIDER_DANA for the DANA SDK adapter. Use PROVIDER_XENDIT for the Xendit SDK adapter. Use PROVIDER_KOMOJU for the KOMOJU Hosted Page adapter. Use PROVIDER_CUSTOM for Generic HTTP Adapter providers (requires customProviderName)"
+        },
+        "itemId": {"type": "string", "description": "AGS store item ID to fulfill on payment"},
+        "quantity": {"type": "integer", "format": "int32"},
+        "description": {"type": "string"},
+        "clientOrderId": {"type": "string", "description": "Idempotency key — same value returns the existing transaction"},
+        "customProviderName": {"type": "string", "description": "Required only when provider=PROVIDER_CUSTOM. E.g. 'midtrans'. Not needed for PROVIDER_DANA, PROVIDER_XENDIT, or PROVIDER_KOMOJU."},
+        "regionCode": {"type": "string", "description": "AGS store region code used to resolve price and currency. Defaults to ID when omitted."}
+      }
+    },
+    "CreatePaymentIntentResponse": {
+      "type": "object",
+      "properties": {
+        "transactionId": {"type": "string"},
+        "paymentUrl": {"type": "string", "description": "Redirect URL for the user to complete payment"},
+        "qrCodeData": {"type": "string", "description": "QRIS string to render as QR code"},
+        "expiresAt": {"type": "string"},
+        "status": {"type": "string"}
+      }
+    },
+    "TransactionResponse": {
+      "type": "object",
+      "properties": {
+        "transactionId": {"type": "string"},
+        "userId": {"type": "string"},
+        "namespace": {"type": "string"},
+        "provider": {"type": "string"},
+        "amount": {"type": "string", "format": "int64"},
+        "currencyCode": {"type": "string"},
+        "itemName": {"type": "string"},
+        "itemId": {"type": "string"},
+        "quantity": {"type": "integer", "format": "int32"},
+        "status": {"type": "string", "enum": ["PENDING","FULFILLING","FULFILLED","FAILED","CANCELED","EXPIRED"]},
+        "providerStatus": {"type": "string"},
+        "providerTxId": {"type": "string"},
+        "paymentUrl": {"type": "string"},
+        "failureReason": {"type": "string"},
+        "refundStatus": {"type": "string"},
+        "refundReason": {"type": "string"},
+        "refundFailureReason": {"type": "string"},
+        "customProviderName": {"type": "string"},
+        "createdAt": {"type": "string", "format": "date-time"},
+        "updatedAt": {"type": "string", "format": "date-time"},
+        "expiresAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "WebhookResponse": {
+      "type": "object",
+      "properties": {
+        "message": {"type": "string"}
+      }
+    },
+    "ListTransactionsResponse": {
+      "type": "object",
+      "properties": {
+        "transactions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/TransactionResponse"}
+        },
+        "nextCursor": {"type": "string"}
+      }
+    },
+    "RefundRequest": {
+      "type": "object",
+      "properties": {
+        "reason": {"type": "string"},
+        "namespace": {"type": "string"}
+      }
+    },
+    "RefundResponse": {
+      "type": "object",
+      "properties": {
+        "transactionId": {"type": "string"},
+        "success": {"type": "boolean"}
+      }
+    },
+    "CancelTransactionRequest": {
+      "type": "object",
+      "properties": {
+        "reason": {"type": "string"}
+      }
+    },
+    "CancelTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "transactionId": {"type": "string"},
+        "success": {"type": "boolean"},
+        "transaction": {"$ref": "#/definitions/TransactionResponse"},
+        "message": {"type": "string"}
+      }
+    },
+    "CreateCheckoutSessionRequest": {
+      "type": "object",
+      "required": ["itemId", "quantity", "clientOrderId"],
+      "properties": {
+        "itemId": {"type": "string", "description": "AGS store item ID to fulfill on payment"},
+        "quantity": {"type": "integer", "format": "int32"},
+        "clientOrderId": {"type": "string", "description": "Idempotency key — used to look up the transaction after the player returns from the browser"},
+        "description": {"type": "string"},
+        "regionCode": {"type": "string", "description": "AGS store region code used to resolve price and currency. Defaults to ID when omitted."}
+      }
+    },
+    "CreateCheckoutSessionResponse": {
+      "type": "object",
+      "properties": {
+        "checkoutUrl": {"type": "string", "description": "Open this URL in a browser to show the payment method selection page"},
+        "transactionId": {"type": "string", "description": "Transaction ID to poll while the player completes checkout"}
+      }
+    },
+    "SyncTransactionResult": {
+      "type": "object",
+      "properties": {
+        "transactionId": {"type": "string"},
+        "provider": {"type": "string"},
+        "providerTxId": {"type": "string"},
+        "paymentStatus": {"type": "string"},
+        "refundStatus": {"type": "string"},
+        "rawPaymentStatus": {"type": "string"},
+        "rawRefundStatus": {"type": "string"},
+        "refundAmount": {"type": "string", "format": "int64"},
+        "refundCurrencyCode": {"type": "string"},
+        "outcome": {"type": "string", "description": "e.g. NO_CHANGE, FULFILLED, FAILED, REFUNDED"},
+        "message": {"type": "string"}
+      }
+    },
+    "SyncTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "result": {"$ref": "#/definitions/SyncTransactionResult"}
+      }
+    },
+    "SyncTransactionsRequest": {
+      "type": "object",
+      "properties": {
+        "provider": {"type": "string"},
+        "statusFilter": {"type": "string", "enum": ["PENDING","FULFILLING","FULFILLED","FAILED","CANCELED","EXPIRED"]},
+        "pageSize": {"type": "integer", "format": "int32"},
+        "cursor": {"type": "string"}
+      }
+    },
+    "SyncTransactionsResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/SyncTransactionResult"}
+        },
+        "nextCursor": {"type": "string"}
+      }
+    },
+    "PublicSyncTransactionsRequest": {
+      "type": "object",
+      "properties": {
+        "provider": {"type": "string"},
+        "pageSize": {"type": "integer", "format": "int32"},
+        "cursor": {"type": "string"}
+      }
+    }
+  }
+}

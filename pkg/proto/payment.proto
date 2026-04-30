@@ -1,0 +1,406 @@
+// Copyright (c) 2026 AccelByte Inc. All Rights Reserved.
+// This is licensed software from AccelByte Inc, for limitations
+// and restrictions contact your company contract manager.
+
+syntax = "proto3";
+
+option go_package = "github.com/accelbyte/extend-regional-payment-gateway/pkg/pb";
+
+package payment.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "permission.proto";
+
+// ─── Enums ─────────────────────────────────────────────────────────────────────
+
+enum Provider {
+  PROVIDER_UNSPECIFIED = 0;
+  PROVIDER_CUSTOM      = 4; // Generic HTTP Adapter — configured via GENERIC_{NAME}_* env vars
+  PROVIDER_DANA        = 5; // First-class DANA SDK adapter
+  PROVIDER_XENDIT      = 6; // First-class Xendit SDK adapter
+  PROVIDER_KOMOJU      = 7; // First-class KOMOJU Hosted Page adapter
+}
+
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  PENDING                        = 1;
+  FULFILLING                     = 2;
+  FULFILLED                      = 3;
+  FAILED                         = 4;
+  CANCELED                       = 5;
+  EXPIRED                        = 6;
+}
+
+// ─── Payment Intent ─────────────────────────────────────────────────────────────
+
+message CreatePaymentIntentRequest {
+  Provider provider             = 1;
+  string   item_id              = 2;
+  int32    quantity             = 3;
+  string   description          = 4;
+  string   client_order_id      = 5;
+  string   custom_provider_name = 6; // required when provider = PROVIDER_CUSTOM
+  string   region_code          = 7; // AGS store region code; defaults to ID when omitted
+}
+
+message CreatePaymentIntentResponse {
+  string            transaction_id = 1;
+  string            payment_url    = 2;
+  string            qr_code_data   = 3;
+  string            expires_at     = 4;
+  TransactionStatus status         = 5;
+}
+
+// ─── Transaction ──────────────────────────────────────────────────────────────
+
+message GetTransactionRequest {
+  string transaction_id = 1;
+  string namespace      = 2;
+}
+
+message TransactionResponse {
+  string            transaction_id  = 1;
+  string            user_id         = 2;
+  string            namespace       = 3;
+  Provider          provider        = 4;
+  int64             amount          = 5;
+  string            item_id         = 6;
+  int32             quantity        = 7;
+  TransactionStatus status          = 8;
+  string            provider_status = 9;
+  string            provider_tx_id  = 10;
+  string            failure_reason  = 11;
+  string            refund_status   = 12;
+  string            custom_provider_name = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp expires_at = 15;
+  string            item_name      = 16;
+  string            currency_code  = 17;
+  string            payment_url    = 18;
+  string            refund_reason  = 19;
+  string            refund_failure_reason = 20;
+  google.protobuf.Timestamp updated_at = 21;
+}
+
+// ─── Webhook ──────────────────────────────────────────────────────────────────
+
+message WebhookRequest {
+  string              provider_name = 1;
+  bytes               raw_payload   = 2;
+  map<string, string> headers       = 3;
+}
+
+message WebhookResponse {
+  string message = 1;
+}
+
+// ─── Admin ────────────────────────────────────────────────────────────────────
+
+message ListTransactionsRequest {
+  string            namespace     = 1;
+  string            user_id       = 2;
+  TransactionStatus status_filter = 3;
+  string            provider      = 4;
+  int32             page_size     = 5;
+  string            cursor        = 6;
+  string            search        = 7; // exact match against transaction_id, provider_tx_id, or item_id
+}
+
+message ListTransactionsResponse {
+  repeated TransactionResponse transactions = 1;
+  string next_cursor = 2;
+}
+
+message RefundRequest {
+  string transaction_id = 1;
+  string reason         = 2;
+  string namespace      = 3;
+}
+
+message RefundResponse {
+  string transaction_id = 1;
+  bool   success        = 2;
+}
+
+message SyncTransactionRequest {
+  string namespace      = 1;
+  string transaction_id = 2;
+}
+
+message SyncTransactionsRequest {
+  string            namespace     = 1;
+  string            provider      = 2;
+  TransactionStatus status_filter = 3;
+  int32             page_size     = 4;
+  string            cursor        = 5;
+}
+
+message SyncTransactionResult {
+  string transaction_id       = 1;
+  string provider             = 2;
+  string provider_tx_id       = 3;
+  string payment_status       = 4;
+  string refund_status        = 5;
+  string raw_payment_status   = 6;
+  string raw_refund_status    = 7;
+  int64  refund_amount        = 8;
+  string refund_currency_code = 9;
+  string outcome              = 10;
+  string message              = 11;
+}
+
+message SyncTransactionResponse {
+  SyncTransactionResult result = 1;
+}
+
+message SyncTransactionsResponse {
+  repeated SyncTransactionResult results = 1;
+  string next_cursor = 2;
+}
+
+message PublicSyncTransactionRequest {
+  string namespace      = 1;
+  string transaction_id = 2;
+}
+
+message PublicSyncTransactionsRequest {
+  string namespace = 1;
+  string provider  = 2;
+  int32  page_size = 3;
+  string cursor    = 4;
+}
+
+message CancelTransactionRequest {
+  string namespace      = 1;
+  string transaction_id = 2;
+  string reason         = 3;
+}
+
+message CancelTransactionResponse {
+  string              transaction_id = 1;
+  bool                success        = 2;
+  TransactionResponse transaction    = 3;
+  string              message        = 4;
+}
+
+// ─── Services ─────────────────────────────────────────────────────────────────
+
+service PaymentService {
+  rpc CreatePaymentIntent(CreatePaymentIntentRequest) returns (CreatePaymentIntentResponse) {
+    option (google.api.http) = {
+      post: "/v1/payment/intent"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Create a payment intent"
+      description: "Initiates a payment flow for an AGS store item. Returns a payment URL or QR code."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc GetTransaction(GetTransactionRequest) returns (TransactionResponse) {
+    option (google.api.http) = {
+      get: "/v1/payment/transaction/{transaction_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get transaction status"
+      description: "Returns the current status of a payment transaction, including live status from the provider."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+}
+
+service PublicService {
+  rpc SyncMyTransaction(PublicSyncTransactionRequest) returns (SyncTransactionResponse) {
+    option (google.api.http) = {
+      post: "/v1/public/namespace/{namespace}/users/me/transactions/{transaction_id}/sync"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Sync one of my transactions from provider"
+      description: "Player-triggered reconciliation for one retained transaction owned by the authenticated user."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc SyncMyTransactions(PublicSyncTransactionsRequest) returns (SyncTransactionsResponse) {
+    option (google.api.http) = {
+      post: "/v1/public/namespace/{namespace}/users/me/transactions/sync"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Sync my transactions from provider"
+      description: "Bounded player-triggered reconciliation for retained transactions owned by the authenticated user."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc CancelMyTransaction(CancelTransactionRequest) returns (CancelTransactionResponse) {
+    option (google.api.http) = {
+      post: "/v1/public/namespace/{namespace}/users/me/transactions/{transaction_id}/cancel"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Cancel my transaction"
+      description: "Cancels a pending transaction owned by the authenticated user, including provider-side cancellation when supported."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+}
+
+// WebhookService is intentionally public (no Bearer security).
+// Security is enforced via provider-specific signature validation inside the handler.
+service WebhookService {
+  rpc HandleWebhook(WebhookRequest) returns (WebhookResponse) {
+    option (google.api.http) = {
+      post: "/v1/webhook/{provider_name}"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Receive provider webhook"
+      description: "Public endpoint for payment provider webhook delivery. Authenticated via provider signature."
+    };
+  }
+}
+
+service AdminService {
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse) {
+    option (permission.action) = READ;
+    option (permission.resource) = "ADMIN:NAMESPACE:{namespace}:PAYMENT:TRANSACTION";
+    option (google.api.http) = {
+      get: "/v1/admin/namespace/{namespace}/transactions"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List transactions"
+      description: "List payment transactions with optional filters. Cursor-based pagination."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc GetTransactionDetail(GetTransactionRequest) returns (TransactionResponse) {
+    option (permission.action) = READ;
+    option (permission.resource) = "ADMIN:NAMESPACE:{namespace}:PAYMENT:TRANSACTION";
+    option (google.api.http) = {
+      get: "/v1/admin/namespace/{namespace}/transactions/{transaction_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get transaction detail"
+      description: "Get full transaction detail including live provider status."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc Refund(RefundRequest) returns (RefundResponse) {
+    option (permission.action) = UPDATE;
+    option (permission.resource) = "ADMIN:NAMESPACE:{namespace}:PAYMENT:TRANSACTION";
+    option (google.api.http) = {
+      post: "/v1/admin/namespace/{namespace}/transactions/{transaction_id}/refund"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Refund a transaction"
+      description: "Executes a refund at the provider and reverses the AGS fulfillment. Idempotent — safe to retry."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc SyncTransaction(SyncTransactionRequest) returns (SyncTransactionResponse) {
+    option (permission.action) = UPDATE;
+    option (permission.resource) = "ADMIN:NAMESPACE:{namespace}:PAYMENT:TRANSACTION";
+    option (google.api.http) = {
+      post: "/v1/admin/namespace/{namespace}/transactions/{transaction_id}/sync"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Sync a transaction from provider"
+      description: "Checks provider-side transaction state and reverses AGS fulfillment when a completed external refund is proven."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc SyncTransactions(SyncTransactionsRequest) returns (SyncTransactionsResponse) {
+    option (permission.action) = UPDATE;
+    option (permission.resource) = "ADMIN:NAMESPACE:{namespace}:PAYMENT:TRANSACTION";
+    option (google.api.http) = {
+      post: "/v1/admin/namespace/{namespace}/transactions/sync"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Sync transactions from provider"
+      description: "Bounded admin-triggered reconciliation for retained transactions, with per-transaction results."
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+}
+
+// OpenAPI global options
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Regional Payment Gateway API";
+    version: "1.0";
+    description: "Extend Service Extension bridging AGS economy to regional payment providers via a Generic HTTP Adapter.";
+  };
+  base_path: "/payment";
+  security_definitions: {
+    security: {
+      key: "Bearer";
+      value: {
+        type: TYPE_API_KEY;
+        in: IN_HEADER;
+        name: "Authorization";
+      }
+    }
+  };
+};

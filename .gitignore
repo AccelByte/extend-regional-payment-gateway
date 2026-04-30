@@ -1,0 +1,50 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+payment-bridge
+
+# Test binary
+*.test
+*.out
+
+# Go workspace
+go.work
+
+# Env files — all ignored locally (use .env.local for local dev)
+.env*
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/mcp.json
+.history/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Template clone used during scaffolding
+template-tmp/
+
+# Internal planning docs
+_internal_doc/
+
+# Go cache
+.gocache/
+
+# Claude internal
+.claude/
+CLAUDE.md
+
+# Backup/temp files
+*.go.*[0-9]
+
+# Go installation tarballs
+*.tar.gz

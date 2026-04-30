@@ -1,0 +1,22 @@
+syntax = "proto3";
+package permission;
+
+import "google/protobuf/descriptor.proto";
+
+option csharp_namespace = "AccelByte.Extend.ServiceExtension";
+option go_package = "github.com/accelbyte/extend-regional-payment-gateway/pkg/pb";
+option java_package = "net.accelbyte.extend.serviceextension";
+option java_multiple_files = true;
+
+enum Action {
+  unknown = 0; // don't use this
+  CREATE = 1;
+  READ = 2;
+  UPDATE = 4;
+  DELETE = 8;
+}
+
+extend google.protobuf.MethodOptions {
+  string resource = 50001;
+  Action action = 50002;
+}
