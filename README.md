@@ -4,13 +4,55 @@ A payment gateway service extension for [AccelByte Game Services (AGS)](https://
 
 ---
 
-## Supported Payment Providers
+## Overview
 
-| Provider | Type | Notes |
-|---|---|---|
-| [Xendit](https://dashboard.xendit.co) | First-class SDK | Hosted checkout via Payment Sessions, multi-country/currency |
-| [KOMOJU](https://komoju.com) | First-class SDK | Hosted checkout via Sessions API, HMAC-SHA256 webhooks |
-| Generic HTTP | Config-driven | Any provider configured via `GENERIC_{NAME}_*` env vars — no code changes required |
+This service runs as a single Go binary exposing:
+
+- **gRPC** on port `6565`
+- **HTTP/REST** (gRPC-Gateway) on port `8000`
+- **Prometheus metrics** on port `8080`
+
+Clients create a payment intent by specifying a `providerId`. The service creates a pending transaction, calls the provider to generate a checkout URL, and returns it to the client. The provider posts a webhook back when payment completes, which triggers AGS item fulfillment.
+
+```
+Client
+  └─ POST /payment/v1/payment/intent
+       └─ Insert PENDING transaction
+       └─ Call provider → return paymentUrl
+
+Provider
+  └─ POST /payment/v1/webhook/{providerId}
+       └─ Validate signature
+       └─ Claim row: PENDING → FULFILLING
+       └─ FulfillItemShort (AGS)
+       └─ FULFILLING → FULFILLED
+```
+
+A background scheduler retries stuck `FULFILLING` rows and polls for lost webhooks.
+
+---
+
+## Built-in Payment Providers
+
+| Provider | Type | Notes | Guide |
+|---|---|---|---|
+| [Xendit](https://dashboard.xendit.co) | SDK adapter | Hosted checkout via Payment Sessions; multi-country/currency | [XenditGuide.md](docs/adapter/XenditGuide.md) |
+| [KOMOJU](https://komoju.com) | SDK adapter | Hosted checkout via Sessions API; HMAC-SHA256 webhooks | [KomojuGuide.md](docs/adapter/KomojuGuide.md) |
+| Generic HTTP | Config-driven | Any provider configured via `GENERIC_{NAME}_*` env vars; no code required | [GenericGuide.md](docs/adapter/GenericGuide.md) |
+
+---
+
+## Adding a New Provider
+
+There are two options:
+
+**Option 1 — Generic HTTP adapter (no code required)**
+
+Add a `GENERIC_{NAME}_*` env var block to your environment and restart. The server discovers and registers the provider at startup. See [GenericGuide.md](docs/adapter/GenericGuide.md) for the full list of variables and an example configuration.
+
+**Option 2 — First-class SDK adapter (Go implementation)**
+
+For providers with complex flows (multi-step ID resolution, SDK clients, partial refund detection), implement the `adapter.PaymentProvider` interface in a new package under `internal/adapter/{vendor}/`. Follow the step-by-step guide in [AdapterTemplateGuide.md](docs/AdapterTemplateGuide.md).
 
 ---
 
@@ -42,13 +84,13 @@ docker run -d -p 27017:27017 mongo:6
 
 Leave `DOCDB_HOST` empty in `.env.local` — the server connects to `localhost:27017` automatically.
 
-### 3. Start ngrok (for receiving webhooks)
+### 3. Start ngrok
 
 ```bash
 ngrok http 8000
 ```
 
-Copy the HTTPS forwarding URL and set it as `PUBLIC_BASE_URL` in `.env.local`. Also configure this URL as the webhook endpoint in your provider's dashboard.
+Copy the HTTPS forwarding URL and set it as `PUBLIC_BASE_URL` in `.env.local`. Configure this same URL as the webhook endpoint in your provider's dashboard.
 
 ### 4. Run the server
 
@@ -57,8 +99,9 @@ set -a && source .env.local && set +a && go run .
 ```
 
 Expected output:
+
 ```
-registered Xendit adapter provider=xendit
+registered Xendit adapter provider_id=provider_xendit
 starting HTTP gateway port=8000
 starting gRPC server port=6565
 ```
@@ -69,27 +112,46 @@ Open [http://localhost:8000/payment/apidocs/](http://localhost:8000/payment/apid
 
 ---
 
-## Key Environment Variables
+## Deploy to AGS
 
-| Variable | Required | Description |
-|---|---|---|
-| `AB_BASE_URL` | Yes | AccelByte base URL |
-| `AB_CLIENT_ID` | Yes | AccelByte client ID |
-| `AB_CLIENT_SECRET` | Yes | AccelByte client secret |
-| `AB_NAMESPACE` | Yes | AccelByte namespace |
-| `PUBLIC_BASE_URL` | Yes | Public URL (ngrok URL in local dev) |
-| `PLUGIN_GRPC_SERVER_AUTH_ENABLED` | No | Set `false` to disable auth locally |
-| `XENDIT_SECRET_API_KEY` | Xendit | Enables the Xendit adapter |
-| `KOMOJU_SECRET_KEY` | KOMOJU | Enables the KOMOJU adapter |
-| `GENERIC_{NAME}_AUTH_HEADER` | Generic | Enables a generic provider named `{NAME}` |
+To upload and run this service on AccelByte Game Services, follow the step-by-step deployment guide:
 
-See `.env.example` for the full list of variables.
+[DeployToAGSGuide.md](docs/DeployToAGSGuide.md)
+
+It covers building the Docker image, creating the app in the AGS Admin Portal, pushing the container image with `extend-helper-cli`, configuring environment variables, deploying, and verifying the deployment.
+
+---
+
+## Configuration
+
+Core environment variables. Provider-specific variables are documented in each provider guide under [`docs/adapter/`](docs/adapter/).
+
+| Variable | Required | Description | Example |
+|---|---|---|---|
+| `AB_BASE_URL` | Yes | AccelByte base URL | `https://dev.sdkteam.accelbyte.io` |
+| `AB_CLIENT_ID` | Yes | AccelByte M2M client ID | `abc123` |
+| `AB_CLIENT_SECRET` | Yes | AccelByte M2M client secret | `secret` |
+| `AB_NAMESPACE` | Yes | AccelByte namespace | `mygame` |
+| `PUBLIC_BASE_URL` | Yes | Public URL of this service (ngrok URL in local dev) | `https://abc123.ngrok-free.app` |
+| `BASE_PATH` | No | HTTP base path prefix. Default: `/payment` | `/payment` |
+| `PLUGIN_GRPC_SERVER_AUTH_ENABLED` | No | Set `false` to disable AGS token auth locally. Default: `true` | `false` |
+| `DOCDB_HOST` | No | DocumentDB host. Empty = `localhost:27017` | `mycluster.docdb.amazonaws.com:27017` |
+| `DOCDB_USERNAME` | No | DocumentDB username | `admin` |
+| `DOCDB_PASSWORD` | No | DocumentDB password | `secret` |
+| `DOCDB_DATABASE_NAME` | No | Database name. Default: `payment` | `payment` |
+| `PAYMENT_EXPIRY_DEFAULT` | No | Default payment session expiry. Default: `15m` | `30m` |
+| `MAX_CONCURRENT_INTENT_PER_USER` | No | Max simultaneous pending payments per user. Default: `5` | `5` |
+| `MAX_RETRIES` | No | Scheduler retry limit for stuck transactions. Default: `3` | `3` |
+| `RECORD_RETENTION_DAYS` | No | Days to retain completed transaction records. Default: `90` | `90` |
+| `PUBLIC_SYNC_COOLDOWN` | No | Minimum interval between user-triggered syncs. Default: `60s` | `60s` |
+| `WEBHOOK_MAX_AGE` | No | Reject webhooks older than this duration. Default: `5m` | `5m` |
+| `LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error`. Default: `info` | `info` |
 
 ---
 
 ## API Endpoints
 
-All HTTP endpoints are served under `/payment`.
+All HTTP endpoints are served under the `BASE_PATH` prefix (default `/payment`).
 
 ### Create a Payment Intent
 
@@ -99,7 +161,7 @@ POST /payment/v1/payment/intent
 
 ```json
 {
-  "provider": "PROVIDER_XENDIT",
+  "providerId": "provider_xendit",
   "itemId": "<ags-item-id>",
   "quantity": 1,
   "clientOrderId": "order-001",
@@ -108,7 +170,7 @@ POST /payment/v1/payment/intent
 }
 ```
 
-Returns a `paymentUrl` to redirect the user to.
+Returns a `paymentUrl` to redirect the player to.
 
 ### Check Transaction Status
 
@@ -116,83 +178,37 @@ Returns a `paymentUrl` to redirect the user to.
 GET /payment/v1/payment/{transactionId}
 ```
 
-Returns `status`: `PENDING → FULFILLING → FULFILLED / FAILED`.
+Returns `status`: `PENDING → FULFILLING → FULFILLED / FAILED / CANCELED / EXPIRED`.
 
-### Refund a Transaction
+### Sync Transaction Status
+
+```
+POST /payment/v1/payment/{transactionId}/sync
+```
+
+Queries the provider for current state and reconciles the local transaction. Rate-limited per user by `PUBLIC_SYNC_COOLDOWN`.
+
+### Refund a Transaction (Admin)
 
 ```
 POST /v1/admin/namespace/{namespace}/transactions/{transactionId}/refund
 ```
 
-Requires a fulfilled transaction. Reverses the AGS fulfillment and calls the provider's refund API.
+Requires a `FULFILLED` transaction and a valid Bearer token (or `PLUGIN_GRPC_SERVER_AUTH_ENABLED=false` locally). Reverses the AGS fulfillment and calls the provider refund API.
 
----
-
-## Running Tests
-
-```bash
-# All tests
-go test ./... -v -count=1
-
-# Unit tests only (no external deps)
-go test ./internal/adapter/generic/... ./internal/store/memory/... -v -count=1
-
-# Integration tests (requires local MongoDB)
-docker run -d -p 27017:27017 mongo:6
-go test ./internal/store/docdb/... -v
+```json
+{
+  "reason": "customer request"
+}
 ```
 
-Or via Makefile:
-
-```bash
-make test        # all tests
-make test-unit   # unit tests only
-```
-
----
-
-## Docker Build
-
-```bash
-docker build -t extend-regional-payment-gateway:latest .
-# or
-make docker-build
-```
-
-Exposed ports: `6565` (gRPC), `8000` (HTTP), `8080` (Prometheus).
-
----
-
-## Architecture
+### Webhook Receiver (Provider → Service)
 
 ```
-Client
-  └─ POST /payment/v1/payment/intent
-       └─ PaymentService.CreatePaymentIntent
-            └─ Insert PENDING transaction
-            └─ Call provider → return paymentUrl
-
-Provider
-  └─ POST /payment/v1/webhook/{provider}
-       └─ WebhookService.HandleWebhook
-            └─ Claim row: PENDING → FULFILLING
-            └─ FulfillItemShort (AGS)
-            └─ FULFILLING → FULFILLED
+POST /payment/v1/webhook/{providerId}
 ```
 
-Key design points:
-- **Adapter pattern** — each provider implements a common `PaymentProvider` interface
-- **Idempotent webhooks** — atomic claim prevents double-fulfillment
-- **Background scheduler** — retries stuck FULFILLING rows and polls for lost webhooks
-- **Generic adapter** — any provider can be added without code changes via `GENERIC_{NAME}_*` env vars
-
----
-
-## Adding a New Provider
-
-**No code changes required** for generic providers — add a `GENERIC_{NAME}_*` env block to your environment file and restart. The server discovers and registers it at startup.
-
-For first-class SDK integrations, follow the Xendit or KOMOJU adapter pattern under `internal/adapter/{provider}/`.
+Public endpoint. The provider posts here after payment events. Signature is validated before any state mutation.
 
 ---
 
@@ -205,11 +221,4 @@ The service is defined in `pkg/proto/payment.proto`. To regenerate Go code and S
 make proto
 ```
 
----
-
-## Documentation
-
-Provider integration guides are in [`docs/`](docs/):
-
-- [`docs/Xendit_Adapter.md`](docs/Xendit_Adapter.md) — Xendit integration guide
-- [`docs/KOMOJU_Adapter.md`](docs/KOMOJU_Adapter.md) — KOMOJU integration guide
+The generated files replace `pkg/pb/payment.go` and update `gateway/apidocs/payment.swagger.json`.

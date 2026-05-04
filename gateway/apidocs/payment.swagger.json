@@ -69,7 +69,7 @@
         }
       }
     },
-    "/v1/webhook/{providerName}": {
+    "/v1/webhook/{providerId}": {
       "post": {
         "summary": "Receive provider webhook",
         "description": "Public endpoint for payment provider webhook delivery. Authenticated via provider signature.",
@@ -77,11 +77,11 @@
         "tags": ["WebhookService"],
         "parameters": [
           {
-            "name": "providerName",
+            "name": "providerId",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Provider slug, e.g. dana, xendit, komoju, generic_midtrans, or generic_dana"
+            "description": "Stable provider ID, e.g. provider_xendit, provider_komoju, or a configured generic provider ID"
           },
           {
             "name": "body",
@@ -166,7 +166,7 @@
           },
           {"name": "userId", "in": "query", "type": "string"},
           {"name": "statusFilter", "in": "query", "type": "string", "enum": ["PENDING","FULFILLING","FULFILLED","FAILED","CANCELED","EXPIRED"]},
-          {"name": "provider", "in": "query", "type": "string"},
+          {"name": "providerId", "in": "query", "type": "string"},
           {"name": "pageSize", "in": "query", "type": "integer", "format": "int32"},
           {"name": "cursor", "in": "query", "type": "string"},
           {"name": "search", "in": "query", "type": "string", "description": "Exact match against transaction ID, provider transaction ID, or item ID"}
@@ -353,18 +353,16 @@
   "definitions": {
     "CreatePaymentIntentRequest": {
       "type": "object",
-      "required": ["provider", "itemId", "quantity", "clientOrderId"],
+      "required": ["providerId", "itemId", "quantity", "clientOrderId"],
       "properties": {
-        "provider": {
+        "providerId": {
           "type": "string",
-          "enum": ["PROVIDER_UNSPECIFIED", "PROVIDER_CUSTOM", "PROVIDER_DANA", "PROVIDER_XENDIT", "PROVIDER_KOMOJU"],
-          "description": "Use PROVIDER_DANA for the DANA SDK adapter. Use PROVIDER_XENDIT for the Xendit SDK adapter. Use PROVIDER_KOMOJU for the KOMOJU Hosted Page adapter. Use PROVIDER_CUSTOM for Generic HTTP Adapter providers (requires customProviderName)"
+          "description": "Stable provider ID registered by an adapter, e.g. provider_xendit"
         },
         "itemId": {"type": "string", "description": "AGS store item ID to fulfill on payment"},
         "quantity": {"type": "integer", "format": "int32"},
         "description": {"type": "string"},
         "clientOrderId": {"type": "string", "description": "Idempotency key — same value returns the existing transaction"},
-        "customProviderName": {"type": "string", "description": "Required only when provider=PROVIDER_CUSTOM. E.g. 'midtrans'. Not needed for PROVIDER_DANA, PROVIDER_XENDIT, or PROVIDER_KOMOJU."},
         "regionCode": {"type": "string", "description": "AGS store region code used to resolve price and currency. Defaults to ID when omitted."}
       }
     },
@@ -384,7 +382,8 @@
         "transactionId": {"type": "string"},
         "userId": {"type": "string"},
         "namespace": {"type": "string"},
-        "provider": {"type": "string"},
+        "providerId": {"type": "string"},
+        "providerDisplayName": {"type": "string"},
         "amount": {"type": "string", "format": "int64"},
         "currencyCode": {"type": "string"},
         "itemName": {"type": "string"},
@@ -398,7 +397,6 @@
         "refundStatus": {"type": "string"},
         "refundReason": {"type": "string"},
         "refundFailureReason": {"type": "string"},
-        "customProviderName": {"type": "string"},
         "createdAt": {"type": "string", "format": "date-time"},
         "updatedAt": {"type": "string", "format": "date-time"},
         "expiresAt": {"type": "string", "format": "date-time"}
@@ -471,7 +469,7 @@
       "type": "object",
       "properties": {
         "transactionId": {"type": "string"},
-        "provider": {"type": "string"},
+        "providerId": {"type": "string"},
         "providerTxId": {"type": "string"},
         "paymentStatus": {"type": "string"},
         "refundStatus": {"type": "string"},
@@ -492,7 +490,7 @@
     "SyncTransactionsRequest": {
       "type": "object",
       "properties": {
-        "provider": {"type": "string"},
+        "providerId": {"type": "string"},
         "statusFilter": {"type": "string", "enum": ["PENDING","FULFILLING","FULFILLED","FAILED","CANCELED","EXPIRED"]},
         "pageSize": {"type": "integer", "format": "int32"},
         "cursor": {"type": "string"}
@@ -511,7 +509,7 @@
     "PublicSyncTransactionsRequest": {
       "type": "object",
       "properties": {
-        "provider": {"type": "string"},
+        "providerId": {"type": "string"},
         "pageSize": {"type": "integer", "format": "int32"},
         "cursor": {"type": "string"}
       }

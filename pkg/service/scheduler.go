@@ -143,8 +143,8 @@ func (s *SchedulerService) runLostWebhookRecovery(ctx context.Context) {
 
 func (s *SchedulerService) expirePending(ctx context.Context, tx *model.Transaction) {
 	if tx.ProviderTxID != "" {
-		providerName := resolveProviderName(tx)
-		if prov, err := s.registry.Get(providerName); err == nil {
+		providerID := resolveProviderID(tx)
+		if prov, err := s.registry.Get(providerID); err == nil {
 			if ps, psErr := prov.GetPaymentStatus(ctx, tx.ProviderTxID); psErr == nil {
 				switch ps.Status {
 				case adapter.PaymentStatusSuccess:
@@ -158,9 +158,7 @@ func (s *SchedulerService) expirePending(ctx context.Context, tx *model.Transact
 				case adapter.PaymentStatusExpired, adapter.PaymentStatusFailed:
 					// fall through to mark expired below
 				default:
-					if canceler, ok := prov.(adapter.PaymentCanceler); ok {
-						_, _ = canceler.CancelPayment(ctx, tx, "payment expired")
-					}
+					_, _ = prov.CancelPayment(ctx, tx, "payment expired")
 				}
 			}
 		}
@@ -175,10 +173,10 @@ func (s *SchedulerService) recoverPending(ctx context.Context, tx *model.Transac
 		return // no provider TX ID yet — cannot poll status
 	}
 
-	providerName := resolveProviderName(tx)
-	prov, err := s.registry.Get(providerName)
+	providerID := resolveProviderID(tx)
+	prov, err := s.registry.Get(providerID)
 	if err != nil {
-		slog.Warn("scheduler: unknown provider for pending tx", "txn_id", tx.ID, "provider", providerName)
+		slog.Warn("scheduler: unknown provider for pending tx", "txn_id", tx.ID, "provider", providerID)
 		return
 	}
 

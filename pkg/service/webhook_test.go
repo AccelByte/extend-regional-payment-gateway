@@ -29,7 +29,10 @@ type stubAdapter struct {
 	rawStatus       string
 }
 
-func (s *stubAdapter) Name() string { return s.providerName }
+func (s *stubAdapter) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: s.providerName, DisplayName: s.providerName}
+}
+func (s *stubAdapter) ValidatePaymentInit(adapter.PaymentInitRequest) error { return nil }
 func (s *stubAdapter) ValidateWebhookSignature(_ context.Context, _ []byte, _ map[string]string) error {
 	return nil
 }
@@ -55,8 +58,14 @@ func (s *stubAdapter) CreatePaymentIntent(_ context.Context, _ adapter.PaymentIn
 func (s *stubAdapter) GetPaymentStatus(_ context.Context, _ string) (*adapter.ProviderPaymentStatus, error) {
 	return nil, adapter.ErrNotSupported
 }
+func (s *stubAdapter) SyncTransactionStatus(context.Context, *model.Transaction) (*adapter.ProviderSyncResult, error) {
+	return &adapter.ProviderSyncResult{PaymentStatus: adapter.SyncPaymentStatusUnsupported, RefundStatus: adapter.SyncRefundStatusUnsupported}, nil
+}
 func (s *stubAdapter) RefundPayment(_ context.Context, _, _ string, _ int64, _ string) error {
 	return errors.New("not implemented")
+}
+func (s *stubAdapter) CancelPayment(context.Context, *model.Transaction, string) (*adapter.CancelResult, error) {
+	return &adapter.CancelResult{Status: adapter.CancelStatusUnsupported}, nil
 }
 func (s *stubAdapter) ValidateCredentials(_ context.Context) error { return nil }
 
@@ -100,7 +109,7 @@ func pendingTx(id string) *model.Transaction {
 }
 
 // TestWebhook_FulfillmentError_ResetsToP checks that when FulfillUserItem fails:
-//   - the webhook returns an Internal gRPC error (so the HTTP layer writes 500 + DANA error body)
+//   - the webhook returns an Internal gRPC error
 //   - the transaction is reset back to PENDING so the next retry can reclaim it
 func TestWebhook_FulfillmentError_ResetsToPending(t *testing.T) {
 	const txID = "tx-001"
@@ -111,8 +120,8 @@ func TestWebhook_FulfillmentError_ResetsToPending(t *testing.T) {
 	svc := newTestSvc(txStore, &failingFulfiller{err: errors.New("AGS down")}, stub)
 
 	_, err := svc.HandleWebhook(context.Background(), &pb.WebhookRequest{
-		ProviderName: "stub",
-		RawPayload:   []byte(`{}`),
+		ProviderId: "stub",
+		RawPayload: []byte(`{}`),
 	})
 
 	require.Error(t, err)
@@ -134,8 +143,8 @@ func TestWebhook_FulfillmentSuccess_Fulfills(t *testing.T) {
 	svc := newTestSvc(txStore, &okFulfiller{}, stub)
 
 	resp, err := svc.HandleWebhook(context.Background(), &pb.WebhookRequest{
-		ProviderName: "stub",
-		RawPayload:   []byte(`{}`),
+		ProviderId: "stub",
+		RawPayload: []byte(`{}`),
 	})
 
 	require.NoError(t, err)
@@ -146,9 +155,9 @@ func TestWebhook_FulfillmentSuccess_Fulfills(t *testing.T) {
 	assert.Equal(t, model.StatusFulfilled, tx.Status)
 }
 
-// TestWebhook_FulfillmentError_DANARetry checks that after a fulfillment failure,
-// the next webhook call (DANA retry) successfully claims and fulfills the transaction.
-func TestWebhook_FulfillmentError_DANARetrySucceeds(t *testing.T) {
+// TestWebhook_FulfillmentError_RetrySucceeds checks that after a fulfillment failure,
+// the next webhook call successfully claims and fulfills the transaction.
+func TestWebhook_FulfillmentError_RetrySucceeds(t *testing.T) {
 	const txID = "tx-003"
 	txStore := memstore.New()
 	require.NoError(t, txStore.CreateTransaction(context.Background(), pendingTx(txID)))
@@ -158,16 +167,16 @@ func TestWebhook_FulfillmentError_DANARetrySucceeds(t *testing.T) {
 	// First call: fulfillment fails → returns error → resets to PENDING
 	svc := newTestSvc(txStore, &failingFulfiller{err: errors.New("AGS down")}, stub)
 	_, err := svc.HandleWebhook(context.Background(), &pb.WebhookRequest{
-		ProviderName: "stub",
-		RawPayload:   []byte(`{}`),
+		ProviderId: "stub",
+		RawPayload: []byte(`{}`),
 	})
 	require.Error(t, err)
 
-	// Second call (DANA retry): fulfillment succeeds → FULFILLED
+	// Second call: fulfillment succeeds → FULFILLED
 	svc.fulfiller = &okFulfiller{}
 	resp, err := svc.HandleWebhook(context.Background(), &pb.WebhookRequest{
-		ProviderName: "stub",
-		RawPayload:   []byte(`{}`),
+		ProviderId: "stub",
+		RawPayload: []byte(`{}`),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "ok", resp.Message)
@@ -191,8 +200,8 @@ func TestWebhook_RefundedStatusIsIgnoredByPaymentWebhook(t *testing.T) {
 	svc := newTestSvc(txStore, &okFulfiller{}, stub)
 
 	resp, err := svc.HandleWebhook(context.Background(), &pb.WebhookRequest{
-		ProviderName: "stub",
-		RawPayload:   []byte(`{}`),
+		ProviderId: "stub",
+		RawPayload: []byte(`{}`),
 	})
 
 	require.NoError(t, err)

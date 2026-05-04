@@ -58,7 +58,7 @@ func TestNew_MalformedTemplate(t *testing.T) {
 func TestName(t *testing.T) {
 	a, err := generic.New(makeConfig(nil))
 	require.NoError(t, err)
-	assert.Equal(t, "generic_test", a.Name())
+	assert.Equal(t, "test", a.Info().ID)
 }
 
 func TestCreatePaymentIntent_TemplateRendering(t *testing.T) {
@@ -76,7 +76,7 @@ func TestCreatePaymentIntent_TemplateRendering(t *testing.T) {
 		InternalOrderID: "order-abc",
 		Amount:          50000,
 		CurrencyCode:    "IDR",
-		CallbackURL:     "https://my.app/webhook/generic_test",
+		CallbackURL:     "https://my.app/webhook/test",
 		ExpiryDuration:  900 * 1000000000, // 15 min
 	})
 	require.NoError(t, err)

@@ -93,15 +93,15 @@ func TestPublicSyncMyTransactions_FiltersCurrentUserProviderAndDefaultsPageSize(
 	svc := NewPublicService(txStore, reg, fulfillment, publicSyncTestConfig())
 
 	resp, err := svc.SyncMyTransactions(publicSyncContext("user-1"), &pb.PublicSyncTransactionsRequest{
-		Namespace: "test-ns",
-		Provider:  "refund_stub",
+		Namespace:  "test-ns",
+		ProviderId: "refund_stub",
 	})
 
 	require.NoError(t, err)
 	assert.Len(t, resp.Results, 10)
 	assert.NotEmpty(t, resp.NextCursor)
 	for _, result := range resp.Results {
-		assert.Equal(t, "refund_stub", result.Provider)
+		assert.Equal(t, "refund_stub", result.ProviderId)
 	}
 }
 
@@ -220,7 +220,7 @@ func createPublicSyncTransaction(t *testing.T, txStore *memstore.Store, txID, us
 		ClientOrderID: "order-" + txID,
 		UserID:        userID,
 		Namespace:     "test-ns",
-		Provider:      provider,
+		ProviderID:    provider,
 		ItemID:        "item-1",
 		Quantity:      1,
 		Amount:        10000,

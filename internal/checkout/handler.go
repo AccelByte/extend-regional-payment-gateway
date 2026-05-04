@@ -17,7 +17,7 @@ import (
 
 // ExistingTransactionPaymentCreator is the subset of PaymentService used by this handler.
 type ExistingTransactionPaymentCreator interface {
-	CreatePaymentForExistingTransaction(ctx context.Context, transactionID string, provider pb.Provider, customProviderName string, description string) (*pb.CreatePaymentIntentResponse, error)
+	CreatePaymentForExistingTransaction(ctx context.Context, transactionID string, providerID string, description string) (*pb.CreatePaymentIntentResponse, error)
 	CancelPaymentForExistingTransaction(ctx context.Context, transactionID string, reason string) (*pb.CancelTransactionResponse, error)
 	CancelSelectedProviderForExistingTransaction(ctx context.Context, transactionID string, reason string) (*pb.CancelTransactionResponse, error)
 	GetTransaction(ctx context.Context, req *pb.GetTransactionRequest) (*pb.TransactionResponse, error)
@@ -437,13 +437,13 @@ func (h *Handler) HandleCheckoutPage(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, _ := h.paymentSvc.GetTransaction(r.Context(), &pb.GetTransactionRequest{TransactionId: sess.TransactionID})
 
-	names := h.registry.Names()
-	sort.Strings(names)
-	providers := make([]providerItem, 0, len(names))
-	for _, n := range names {
-		display := displayName(n)
+	infos := h.registry.Infos()
+	sort.Slice(infos, func(i, j int) bool { return infos[i].DisplayName < infos[j].DisplayName })
+	providers := make([]providerItem, 0, len(infos))
+	for _, info := range infos {
+		display := fallback(info.DisplayName, displayName(info.ID))
 		providers = append(providers, providerItem{
-			Key:         n,
+			Key:         info.ID,
 			DisplayName: display,
 			Initials:    initials(display),
 		})
@@ -529,8 +529,7 @@ func (h *Handler) HandleProviderSelect(w http.ResponseWriter, r *http.Request) {
 	// Inject userID into gRPC metadata so CreatePaymentIntent can read it.
 	ctx := metadata.NewIncomingContext(r.Context(), metadata.Pairs("x-auth-user-id", sess.UserID))
 
-	providerEnum, customName := resolveProviderEnum(providerKey)
-	resp, err := h.paymentSvc.CreatePaymentForExistingTransaction(ctx, sess.TransactionID, providerEnum, customName, sess.Description)
+	resp, err := h.paymentSvc.CreatePaymentForExistingTransaction(ctx, sess.TransactionID, providerKey, sess.Description)
 	if err != nil {
 		if strings.Contains(err.Error(), "payment provider already selected") {
 			http.Redirect(w, r, fmt.Sprintf("%s/checkout/%s", h.basePath, sessionID), http.StatusFound)
@@ -593,28 +592,9 @@ func (h *Handler) HandleCancelSelectedProvider(w http.ResponseWriter, r *http.Re
 	http.Redirect(w, r, fmt.Sprintf("%s/checkout/%s", h.basePath, sessionID), http.StatusFound)
 }
 
-// resolveProviderEnum maps a registry key to the pb.Provider enum value.
-// Keys like "dana", "xendit", and "komoju" map to first-class providers; anything else
-// maps to PROVIDER_CUSTOM with the key as customName.
-func resolveProviderEnum(key string) (pb.Provider, string) {
-	switch key {
-	case "dana":
-		return pb.Provider_PROVIDER_DANA, ""
-	case "xendit":
-		return pb.Provider_PROVIDER_XENDIT, ""
-	case "komoju":
-		return pb.Provider_PROVIDER_KOMOJU, ""
-	default:
-		// Strip "generic_" prefix for the custom_provider_name field so
-		// resolveProviderKey() in payment.go can find it via either bare or prefixed name.
-		name := strings.TrimPrefix(key, "generic_")
-		return pb.Provider_PROVIDER_CUSTOM, name
-	}
-}
-
 // displayName converts a registry key to a human-readable label.
 func displayName(key string) string {
-	name := strings.TrimPrefix(key, "generic_")
+	name := strings.TrimPrefix(key, "provider_")
 	// Title-case each word separated by underscores or hyphens.
 	parts := strings.FieldsFunc(name, func(r rune) bool { return r == '_' || r == '-' })
 	for i, p := range parts {
@@ -629,19 +609,13 @@ func transactionProviderDisplayName(tx *pb.TransactionResponse) string {
 	if tx == nil {
 		return "The selected payment method"
 	}
-	if tx.Provider == pb.Provider_PROVIDER_CUSTOM && strings.TrimSpace(tx.CustomProviderName) != "" {
-		return displayName(tx.CustomProviderName)
+	if strings.TrimSpace(tx.ProviderDisplayName) != "" {
+		return tx.ProviderDisplayName
 	}
-	switch tx.Provider {
-	case pb.Provider_PROVIDER_DANA:
-		return "Dana"
-	case pb.Provider_PROVIDER_XENDIT:
-		return "Xendit"
-	case pb.Provider_PROVIDER_KOMOJU:
-		return "Komoju"
-	default:
+	if strings.TrimSpace(tx.ProviderId) == "" {
 		return "The selected payment method"
 	}
+	return displayName(tx.ProviderId)
 }
 
 func initials(name string) string {

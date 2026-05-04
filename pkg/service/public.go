@@ -68,7 +68,7 @@ func (s *PublicService) SyncMyTransaction(ctx context.Context, req *pb.PublicSyn
 	if tx.Namespace != req.Namespace || tx.UserID != userID {
 		return nil, status.Error(codes.NotFound, "transaction not found")
 	}
-	if err := s.claimCooldown(req.Namespace, userID, resolveProviderName(tx)); err != nil {
+	if err := s.claimCooldown(req.Namespace, userID, resolveProviderID(tx)); err != nil {
 		return nil, err
 	}
 
@@ -83,7 +83,7 @@ func (s *PublicService) SyncMyTransactions(ctx context.Context, req *pb.PublicSy
 	if strings.TrimSpace(req.Namespace) == "" {
 		return nil, status.Error(codes.InvalidArgument, "namespace is required")
 	}
-	if err := s.claimCooldown(req.Namespace, userID, req.Provider); err != nil {
+	if err := s.claimCooldown(req.Namespace, userID, req.ProviderId); err != nil {
 		return nil, err
 	}
 
@@ -98,7 +98,7 @@ func (s *PublicService) SyncMyTransactions(ctx context.Context, req *pb.PublicSy
 	txns, nextCursor, err := s.txStore.ListTransactions(ctx, store.ListQuery{
 		Namespace:     req.Namespace,
 		UserID:        userID,
-		Provider:      req.Provider,
+		ProviderID:    req.ProviderId,
 		StatusFilters: []string{model.StatusPending, model.StatusFulfilled},
 		PageSize:      pageSize,
 		Cursor:        req.Cursor,
@@ -158,15 +158,11 @@ func (s *PublicService) CancelMyTransaction(ctx context.Context, req *pb.CancelT
 	}
 
 	if tx.ProviderTxID != "" {
-		prov, regErr := s.syncer.registry.Get(resolveProviderName(tx))
+		prov, regErr := s.syncer.registry.Get(resolveProviderID(tx))
 		if regErr != nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "unknown provider: %s", resolveProviderName(tx))
+			return nil, status.Errorf(codes.FailedPrecondition, "unknown provider: %s", resolveProviderID(tx))
 		}
-		canceler, ok := prov.(adapter.PaymentCanceler)
-		if !ok {
-			return nil, status.Error(codes.FailedPrecondition, "provider cancellation is not supported for selected payment")
-		}
-		result, cancelErr := canceler.CancelPayment(ctx, tx, reason)
+		result, cancelErr := prov.CancelPayment(ctx, tx, reason)
 		if cancelErr != nil {
 			return nil, status.Errorf(codes.Unavailable, "provider cancel failed: %v", cancelErr)
 		}

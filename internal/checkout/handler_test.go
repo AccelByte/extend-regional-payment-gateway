@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/accelbyte/extend-regional-payment-gateway/internal/adapter"
+	"github.com/accelbyte/extend-regional-payment-gateway/internal/model"
 	pb "github.com/accelbyte/extend-regional-payment-gateway/pkg/pb"
 )
 
@@ -20,7 +21,7 @@ type stubPaymentSvc struct {
 	cancelSelectedCalled bool
 }
 
-func (s *stubPaymentSvc) CreatePaymentForExistingTransaction(context.Context, string, pb.Provider, string, string) (*pb.CreatePaymentIntentResponse, error) {
+func (s *stubPaymentSvc) CreatePaymentForExistingTransaction(context.Context, string, string, string) (*pb.CreatePaymentIntentResponse, error) {
 	if s.createErr != nil {
 		return nil, s.createErr
 	}
@@ -50,7 +51,13 @@ type stubProvider struct {
 	name string
 }
 
-func (p stubProvider) Name() string { return p.name }
+func (p stubProvider) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: p.name, DisplayName: displayName(p.name)}
+}
+
+func (stubProvider) ValidatePaymentInit(adapter.PaymentInitRequest) error {
+	return nil
+}
 
 func (stubProvider) CreatePaymentIntent(context.Context, adapter.PaymentInitRequest) (*adapter.PaymentIntent, error) {
 	return nil, nil
@@ -58,6 +65,10 @@ func (stubProvider) CreatePaymentIntent(context.Context, adapter.PaymentInitRequ
 
 func (stubProvider) GetPaymentStatus(context.Context, string) (*adapter.ProviderPaymentStatus, error) {
 	return nil, adapter.ErrNotSupported
+}
+
+func (stubProvider) SyncTransactionStatus(context.Context, *model.Transaction) (*adapter.ProviderSyncResult, error) {
+	return &adapter.ProviderSyncResult{PaymentStatus: adapter.SyncPaymentStatusUnsupported, RefundStatus: adapter.SyncRefundStatusUnsupported}, nil
 }
 
 func (stubProvider) ValidateWebhookSignature(context.Context, []byte, map[string]string) error {
@@ -70,6 +81,10 @@ func (stubProvider) HandleWebhook(context.Context, []byte, map[string]string) (*
 
 func (stubProvider) RefundPayment(context.Context, string, string, int64, string) error {
 	return nil
+}
+
+func (stubProvider) CancelPayment(context.Context, *model.Transaction, string) (*adapter.CancelResult, error) {
+	return &adapter.CancelResult{Status: adapter.CancelStatusUnsupported}, nil
 }
 
 func (stubProvider) ValidateCredentials(context.Context) error {
@@ -91,8 +106,8 @@ func TestHandleCheckoutPageRendersOrderDetailsAndProviders(t *testing.T) {
 	})
 
 	registry := adapter.NewRegistry()
-	registry.Register(stubProvider{name: "generic_shopee_pay"})
-	registry.Register(stubProvider{name: "dana"})
+	registry.Register(stubProvider{name: "provider_shopee_pay"})
+	registry.Register(stubProvider{name: "provider_komoju"})
 
 	handler := NewHandler(store, registry, &stubPaymentSvc{}, "/payment")
 	req := httptest.NewRequest(http.MethodGet, "/payment/checkout/"+sessionID, nil)
@@ -112,12 +127,12 @@ func TestHandleCheckoutPageRendersOrderDetailsAndProviders(t *testing.T) {
 		"10.500 IDR",
 		"21.000 IDR",
 		"Choose payment method",
-		"Dana",
+		"Komoju",
 		"Shopee Pay",
 		`action="/payment/checkout/` + sessionID + `/select"`,
 		`action="/payment/checkout/` + sessionID + `/cancel"`,
-		`name="provider" value="dana"`,
-		`name="provider" value="generic_shopee_pay"`,
+		`name="provider" value="provider_komoju"`,
+		`name="provider" value="provider_shopee_pay"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("rendered checkout page missing %q\nbody:\n%s", want, body)
@@ -133,10 +148,10 @@ func TestHandleProviderSelectDoesNotConsumeSession(t *testing.T) {
 		ExpiresAt:     time.Now().Add(30 * time.Minute),
 	})
 	registry := adapter.NewRegistry()
-	registry.Register(stubProvider{name: "xendit"})
+	registry.Register(stubProvider{name: "provider_xendit"})
 	handler := NewHandler(store, registry, &stubPaymentSvc{}, "/payment")
 
-	req := httptest.NewRequest(http.MethodPost, "/payment/checkout/"+sessionID+"/select", strings.NewReader("provider=xendit"))
+	req := httptest.NewRequest(http.MethodPost, "/payment/checkout/"+sessionID+"/select", strings.NewReader("provider=provider_xendit"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.HandleProviderSelect(rec, req)
@@ -157,10 +172,10 @@ func TestHandleProviderSelectAlreadySelectedRedirectsToCheckout(t *testing.T) {
 		ExpiresAt:     time.Now().Add(30 * time.Minute),
 	})
 	registry := adapter.NewRegistry()
-	registry.Register(stubProvider{name: "xendit"})
+	registry.Register(stubProvider{name: "provider_xendit"})
 	handler := NewHandler(store, registry, &stubPaymentSvc{createErr: errors.New("rpc error: code = FailedPrecondition desc = payment provider already selected")}, "/payment")
 
-	req := httptest.NewRequest(http.MethodPost, "/payment/checkout/"+sessionID+"/select", strings.NewReader("provider=xendit"))
+	req := httptest.NewRequest(http.MethodPost, "/payment/checkout/"+sessionID+"/select", strings.NewReader("provider=provider_xendit"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.HandleProviderSelect(rec, req)
@@ -196,10 +211,11 @@ func TestHandleCheckoutPageRendersSelectedProviderState(t *testing.T) {
 		ExpiresAt:     time.Now().Add(30 * time.Minute),
 	})
 	handler := NewHandler(store, adapter.NewRegistry(), &stubPaymentSvc{tx: &pb.TransactionResponse{
-		Status:       pb.TransactionStatus_PENDING,
-		Provider:     pb.Provider_PROVIDER_XENDIT,
-		ProviderTxId: "ps-123",
-		PaymentUrl:   "https://xendit.test/pay/ps-123",
+		Status:              pb.TransactionStatus_PENDING,
+		ProviderId:          "provider_xendit",
+		ProviderDisplayName: "Xendit",
+		ProviderTxId:        "ps-123",
+		PaymentUrl:          "https://xendit.test/pay/ps-123",
 	}}, "/payment")
 
 	req := httptest.NewRequest(http.MethodGet, "/payment/checkout/"+sessionID, nil)
@@ -254,27 +270,5 @@ func TestFormatCurrencyAmount(t *testing.T) {
 		if got := formatCurrencyAmount(amount, "usd"); got != want {
 			t.Fatalf("formatCurrencyAmount(%d) = %q, want %q", amount, got, want)
 		}
-	}
-}
-
-func TestResolveProviderEnumMapsFirstClassProviders(t *testing.T) {
-	tests := []struct {
-		key        string
-		want       pb.Provider
-		wantCustom string
-	}{
-		{key: "dana", want: pb.Provider_PROVIDER_DANA},
-		{key: "xendit", want: pb.Provider_PROVIDER_XENDIT},
-		{key: "komoju", want: pb.Provider_PROVIDER_KOMOJU},
-		{key: "generic_midtrans", want: pb.Provider_PROVIDER_CUSTOM, wantCustom: "midtrans"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.key, func(t *testing.T) {
-			got, gotCustom := resolveProviderEnum(tt.key)
-			if got != tt.want || gotCustom != tt.wantCustom {
-				t.Fatalf("resolveProviderEnum(%q) = (%v, %q), want (%v, %q)", tt.key, got, gotCustom, tt.want, tt.wantCustom)
-			}
-		})
 	}
 }

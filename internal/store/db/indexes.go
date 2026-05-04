@@ -29,6 +29,10 @@ func EnsureIndexes(ctx context.Context, coll *mongo.Collection) error {
 			Options: options.Index().SetName("namespace_provider_tx_id"),
 		},
 		{
+			Keys:    bson.D{{Key: "namespace", Value: 1}, {Key: "provider_id", Value: 1}},
+			Options: options.Index().SetName("namespace_provider_id"),
+		},
+		{
 			Keys:    bson.D{{Key: "namespace", Value: 1}, {Key: "item_id", Value: 1}},
 			Options: options.Index().SetName("namespace_item_id"),
 		},

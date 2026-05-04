@@ -12,12 +12,6 @@ import (
 	pb "github.com/accelbyte/extend-regional-payment-gateway/pkg/pb"
 )
 
-func TestProviderToJSONIncludesFirstClassKomoju(t *testing.T) {
-	if got := providerToJSON(pb.Provider_PROVIDER_KOMOJU); got != "komoju" {
-		t.Fatalf("providerToJSON(PROVIDER_KOMOJU) = %q, want komoju", got)
-	}
-}
-
 func TestValidateBearerToken(t *testing.T) {
 	previous := Validator
 	t.Cleanup(func() { Validator = previous })

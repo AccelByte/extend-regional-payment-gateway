@@ -58,35 +58,36 @@ func NewWebhookService(
 // This method is called directly (not through gRPC-Gateway) for the webhook route
 // so that the raw body bytes are preserved for signature validation.
 func (s *WebhookService) HandleWebhook(ctx context.Context, req *pb.WebhookRequest) (*pb.WebhookResponse, error) {
-	providerName := req.ProviderName
+	providerID := req.ProviderId
 	headers := req.Headers
 	rawBody := req.RawPayload
+	if strings.TrimSpace(providerID) == "" {
+		return nil, status.Error(codes.InvalidArgument, "provider_id required")
+	}
 
 	// Step 1: Resolve adapter
-	prov, err := s.registry.Get(providerName)
+	prov, err := s.registry.Get(providerID)
 	if err != nil {
-		slog.Warn("webhook: unknown provider", "provider", providerName)
-		return nil, status.Errorf(codes.InvalidArgument, "unknown provider: %s", providerName)
+		slog.Warn("webhook: unknown provider", "provider", providerID)
+		return nil, status.Errorf(codes.InvalidArgument, "unknown provider: %s", providerID)
 	}
 
 	// Step 2: Validate signature BEFORE any state mutation
 	if err := prov.ValidateWebhookSignature(ctx, rawBody, headers); err != nil {
-		slog.Warn("webhook: signature validation failed", "provider", providerName, "error", err)
+		slog.Warn("webhook: signature validation failed", "provider", providerID, "error", err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid webhook signature: %v", err)
 	}
 
-	// Step 2b: Force-error mode for DANA certification (WEBHOOK_FORCE_ERROR=true).
-	// Returns 5005601 immediately so DANA's dashboard records the error scenario.
-	// Unset the env var before DANA retries so the retry receives 2005600.
+	// Step 2b: Force-error mode for provider certification scenarios.
 	if s.cfg.WebhookForceError {
-		slog.Warn("webhook: WEBHOOK_FORCE_ERROR is set — returning forced error", "provider", providerName)
+		slog.Warn("webhook: WEBHOOK_FORCE_ERROR is set — returning forced error", "provider", providerID)
 		return nil, status.Error(codes.Internal, "forced error for certification")
 	}
 
 	// Step 3: Parse webhook payload
 	result, err := prov.HandleWebhook(ctx, rawBody, headers)
 	if err != nil {
-		slog.Error("webhook: HandleWebhook parse failed", "provider", providerName, "error", err)
+		slog.Error("webhook: HandleWebhook parse failed", "provider", providerID, "error", err)
 		return nil, status.Errorf(codes.InvalidArgument, "failed to parse webhook: %v", err)
 	}
 
@@ -130,7 +131,7 @@ func (s *WebhookService) HandleWebhook(ctx context.Context, req *pb.WebhookReque
 
 	// Step 5: Only proceed for confirmed SUCCESS
 	if result.Status != adapter.PaymentStatusSuccess {
-		slog.Info("webhook: ignoring non-terminal status", "provider", providerName, "status", result.Status)
+		slog.Info("webhook: ignoring non-terminal status", "provider", providerID, "status", result.Status)
 		return &pb.WebhookResponse{Message: "ok"}, nil
 	}
 
@@ -172,7 +173,7 @@ func (s *WebhookService) HandleWebhook(ctx context.Context, req *pb.WebhookReque
 	// Step 9: Notify player (fire-and-forget)
 	s.notifier.NotifyPaymentResult(ctx, tx.UserID, tx.ID, model.StatusFulfilled, tx.ItemID)
 
-	slog.Info("webhook: transaction fulfilled", "txn_id", tx.ID, "provider", providerName)
+	slog.Info("webhook: transaction fulfilled", "txn_id", tx.ID, "provider", providerID)
 	return &pb.WebhookResponse{Message: "ok"}, nil
 }
 

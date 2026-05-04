@@ -20,7 +20,7 @@ type ListQuery struct {
 	UserID        string
 	StatusFilter  string
 	StatusFilters []string
-	Provider      string
+	ProviderID    string
 	Search        string
 	PageSize      int32
 	Cursor        string // last _id seen; empty = first page
@@ -41,7 +41,7 @@ type Store interface {
 	MarkFailed(ctx context.Context, txnID, reason string, deleteAt time.Time) error
 	MarkCanceledIfPending(ctx context.Context, txnID, reason, providerStatus string, deleteAt time.Time) error
 	MarkExpiredIfPending(ctx context.Context, txnID, reason, providerStatus string, deleteAt time.Time) error
-	AttachProviderTransaction(ctx context.Context, txnID, provider, customProviderName, providerTxID, paymentURL string) error
+	AttachProviderTransaction(ctx context.Context, txnID, providerID, providerDisplayName, providerTxID, paymentURL string) error
 	ClearProviderTransactionIfPending(ctx context.Context, txnID, providerTxID string) error
 	UpdateProviderTransactionID(ctx context.Context, txnID, providerTxID string) error
 	DeleteTransaction(ctx context.Context, id string) error

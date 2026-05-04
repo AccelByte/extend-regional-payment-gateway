@@ -130,7 +130,7 @@ func (s *Store) markTerminalIfPending(txnID, terminalStatus, reason, providerSta
 	return nil
 }
 
-func (s *Store) AttachProviderTransaction(_ context.Context, txnID, provider, customProviderName, providerTxID, paymentURL string) error {
+func (s *Store) AttachProviderTransaction(_ context.Context, txnID, providerID, providerDisplayName, providerTxID, paymentURL string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, ok := s.data[txnID]
@@ -140,8 +140,8 @@ func (s *Store) AttachProviderTransaction(_ context.Context, txnID, provider, cu
 	if tx.Status != model.StatusPending || tx.ProviderTxID != "" {
 		return store.ErrNoDocuments
 	}
-	tx.Provider = provider
-	tx.CustomProviderName = customProviderName
+	tx.ProviderID = providerID
+	tx.ProviderDisplayName = providerDisplayName
 	tx.ProviderTxID = providerTxID
 	tx.PaymentURL = paymentURL
 	tx.UpdatedAt = time.Now().UTC()
@@ -158,8 +158,8 @@ func (s *Store) ClearProviderTransactionIfPending(_ context.Context, txnID, prov
 	if tx.Status != model.StatusPending || tx.ProviderTxID == "" || tx.ProviderTxID != providerTxID {
 		return store.ErrNoDocuments
 	}
-	tx.Provider = ""
-	tx.CustomProviderName = ""
+	tx.ProviderID = ""
+	tx.ProviderDisplayName = ""
 	tx.ProviderTxID = ""
 	tx.PaymentURL = ""
 	tx.ProviderStatus = ""
@@ -237,7 +237,7 @@ func (s *Store) ListTransactions(_ context.Context, q store.ListQuery) ([]*model
 				continue
 			}
 		}
-		if q.Provider != "" && tx.Provider != q.Provider {
+		if q.ProviderID != "" && tx.ProviderID != q.ProviderID {
 			continue
 		}
 		if search != "" && tx.ID != search && tx.ProviderTxID != search && tx.ItemID != search {

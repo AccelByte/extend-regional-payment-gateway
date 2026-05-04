@@ -42,6 +42,9 @@ type Adapter struct {
 // New creates a Generic adapter from a validated config.
 // Returns an error if any template is malformed — this surfaces misconfiguration at startup.
 func New(cfg *config.GenericProviderConfig) (*Adapter, error) {
+	if cfg.DisplayName == "" {
+		cfg.DisplayName = cfg.Name
+	}
 	a := &Adapter{
 		name:       cfg.Name,
 		cfg:        cfg,
@@ -78,9 +81,12 @@ func New(cfg *config.GenericProviderConfig) (*Adapter, error) {
 	return a, nil
 }
 
-// Name returns "generic_{name}" (e.g. "generic_dana", "generic_shopeepay").
-func (a *Adapter) Name() string {
-	return "generic_" + a.name
+func (a *Adapter) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: a.name, DisplayName: a.cfg.DisplayName}
+}
+
+func (a *Adapter) ValidatePaymentInit(_ adapter.PaymentInitRequest) error {
+	return nil
 }
 
 func (a *Adapter) CreatePaymentIntent(ctx context.Context, req adapter.PaymentInitRequest) (*adapter.PaymentIntent, error) {

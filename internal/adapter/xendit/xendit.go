@@ -56,6 +56,12 @@ func New(cfg *Config) (*Adapter, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("xendit config is required")
 	}
+	if cfg.ProviderID == "" {
+		cfg.ProviderID = "provider_xendit"
+	}
+	if cfg.DisplayName == "" {
+		cfg.DisplayName = "Xendit"
+	}
 	client := xenditsdk.NewClient(cfg.SecretAPIKey)
 	if sdkCfg, ok := client.GetConfig().(*xenditsdk.Configuration); ok {
 		baseURL := strings.TrimRight(cfg.APIBaseURL, "/")
@@ -72,7 +78,14 @@ func New(cfg *Config) (*Adapter, error) {
 	}, nil
 }
 
-func (a *Adapter) Name() string { return "xendit" }
+func (a *Adapter) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: a.cfg.ProviderID, DisplayName: a.cfg.DisplayName}
+}
+
+func (a *Adapter) ValidatePaymentInit(req adapter.PaymentInitRequest) error {
+	_, _, err := a.buildCreatePaymentSessionRequest(req)
+	return err
+}
 
 func (c sdkTransactionHistoryClient) ListByReferenceID(ctx context.Context, referenceID string) ([]xenditTransactionRecord, error) {
 	if strings.TrimSpace(referenceID) == "" {

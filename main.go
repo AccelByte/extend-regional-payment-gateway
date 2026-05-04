@@ -47,7 +47,6 @@ import (
 	sdkAuth "github.com/AccelByte/accelbyte-go-sdk/services-api/pkg/utils/auth"
 
 	"github.com/accelbyte/extend-regional-payment-gateway/internal/adapter"
-	dana "github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/dana"
 	"github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/generic"
 	komoju "github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/komoju"
 	xendit "github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/xendit"
@@ -159,18 +158,7 @@ func main() {
 			os.Exit(1)
 		}
 		registry.Register(a)
-		slog.Info("registered generic adapter", "provider", a.Name())
-	}
-
-	// ── DANA Adapter (conditional on DANA_PARTNER_ID being set) ─────────────
-	if cfg.DANAConfig != nil {
-		danaAdapter, adapterErr := dana.New(cfg.DANAConfig)
-		if adapterErr != nil {
-			slog.Error("failed to create DANA adapter", "error", adapterErr)
-			os.Exit(1)
-		}
-		registry.Register(danaAdapter)
-		slog.Info("registered DANA adapter", "provider", danaAdapter.Name())
+		slog.Info("registered generic adapter", "provider_id", a.Info().ID)
 	}
 
 	// ── Services ─────────────────────────────────────────────────────────────
@@ -181,7 +169,7 @@ func main() {
 			os.Exit(1)
 		}
 		registry.Register(xenditAdapter)
-		slog.Info("registered Xendit adapter", "provider", xenditAdapter.Name())
+		slog.Info("registered Xendit adapter", "provider_id", xenditAdapter.Info().ID)
 	}
 
 	if cfg.KomojuConfig != nil {
@@ -191,7 +179,7 @@ func main() {
 			os.Exit(1)
 		}
 		registry.Register(komojuAdapter)
-		slog.Info("registered KOMOJU adapter", "provider", komojuAdapter.Name())
+		slog.Info("registered KOMOJU adapter", "provider_id", komojuAdapter.Info().ID)
 	}
 
 	paymentSvc := service.NewPaymentService(txStore, registry, itemService, cfg)
@@ -368,9 +356,9 @@ func newHTTPServer(addr string, gateway http.Handler, webhookSvc *service.Webhoo
 
 		// Call webhook service directly — bypasses gRPC-Gateway JSON decoding
 		resp, svcErr := webhookSvc.HandleWebhook(r.Context(), &pb.WebhookRequest{
-			ProviderName: providerName,
-			RawPayload:   rawBody,
-			Headers:      headers,
+			ProviderId: providerName,
+			RawPayload: rawBody,
+			Headers:    headers,
 		})
 
 		w.Header().Set("Content-Type", "application/json")
@@ -386,7 +374,7 @@ func newHTTPServer(addr string, gateway http.Handler, webhookSvc *service.Webhoo
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		// If the provider requires a custom ack body (e.g. DANA expects a specific responseCode),
+		// If the provider requires a custom ack body,
 		// write it instead of the default gRPC response encoding.
 		if prov, lookupErr := registry.Get(providerName); lookupErr == nil {
 			if acker, ok := prov.(adapter.WebhookAcknowledger); ok {
@@ -413,7 +401,7 @@ func newHTTPServer(addr string, gateway http.Handler, webhookSvc *service.Webhoo
 		}
 	})
 
-	// Payment result landing page — browser redirect destination after DANA payment
+	// Payment result landing page — browser redirect destination after payment
 	mux.HandleFunc(basePath+"/payment-result/status", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -506,39 +494,9 @@ func toPaymentResultStatus(tx *pb.TransactionResponse) paymentResultStatusRespon
 		AmountValue:   tx.Amount,
 		CurrencyCode:  tx.CurrencyCode,
 		Amount:        formatResultCurrencyAmount(tx.Amount, tx.CurrencyCode),
-		Provider:      resultProviderName(tx.Provider, tx.CustomProviderName),
+		Provider:      tx.ProviderDisplayName,
 		Status:        tx.Status.String(),
 	}
-}
-
-func resultProviderName(provider pb.Provider, customProviderName string) string {
-	switch provider {
-	case pb.Provider_PROVIDER_DANA:
-		return "DANA"
-	case pb.Provider_PROVIDER_XENDIT:
-		return "XENDIT"
-	case pb.Provider_PROVIDER_KOMOJU:
-		return "KOMOJU"
-	case pb.Provider_PROVIDER_CUSTOM:
-		if customProviderName != "" {
-			return displayResultName(customProviderName)
-		}
-		return "Custom Provider"
-	default:
-		return ""
-	}
-}
-
-func displayResultName(value string) string {
-	value = strings.TrimPrefix(value, "generic_")
-	parts := strings.FieldsFunc(value, func(r rune) bool { return r == '_' || r == '-' })
-	for i, part := range parts {
-		if part == "" {
-			continue
-		}
-		parts[i] = strings.ToUpper(part[:1]) + part[1:]
-	}
-	return strings.Join(parts, " ")
 }
 
 func formatResultCurrencyAmount(amount int64, currencyCode string) string {

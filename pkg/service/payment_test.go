@@ -9,7 +9,6 @@ import (
 	"github.com/accelbyte/extend-regional-payment-gateway/internal/config"
 	"github.com/accelbyte/extend-regional-payment-gateway/internal/model"
 	memstore "github.com/accelbyte/extend-regional-payment-gateway/internal/store/memory"
-	pb "github.com/accelbyte/extend-regional-payment-gateway/pkg/pb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -30,9 +29,9 @@ func TestReturnURLWithTransactionID(t *testing.T) {
 		},
 		{
 			name:          "preserves existing query parameters",
-			rawURL:        "https://example.test/payment/payment-result?source=dana",
+			rawURL:        "https://example.test/payment/payment-result?source=xendit",
 			transactionID: "txn-123",
-			want:          "https://example.test/payment/payment-result?source=dana&transactionId=txn-123",
+			want:          "https://example.test/payment/payment-result?source=xendit&transactionId=txn-123",
 		},
 		{
 			name:          "escapes transaction id",
@@ -55,7 +54,13 @@ type namedProvider struct {
 	name string
 }
 
-func (p namedProvider) Name() string { return p.name }
+func (p namedProvider) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: p.name, DisplayName: p.name}
+}
+
+func (namedProvider) ValidatePaymentInit(adapter.PaymentInitRequest) error {
+	return nil
+}
 
 func (namedProvider) CreatePaymentIntent(context.Context, adapter.PaymentInitRequest) (*adapter.PaymentIntent, error) {
 	return nil, nil
@@ -63,6 +68,10 @@ func (namedProvider) CreatePaymentIntent(context.Context, adapter.PaymentInitReq
 
 func (namedProvider) GetPaymentStatus(context.Context, string) (*adapter.ProviderPaymentStatus, error) {
 	return nil, adapter.ErrNotSupported
+}
+
+func (namedProvider) SyncTransactionStatus(context.Context, *model.Transaction) (*adapter.ProviderSyncResult, error) {
+	return &adapter.ProviderSyncResult{PaymentStatus: adapter.SyncPaymentStatusUnsupported, RefundStatus: adapter.SyncRefundStatusUnsupported}, nil
 }
 
 func (namedProvider) ValidateWebhookSignature(context.Context, []byte, map[string]string) error {
@@ -77,66 +86,12 @@ func (namedProvider) RefundPayment(context.Context, string, string, int64, strin
 	return nil
 }
 
+func (namedProvider) CancelPayment(context.Context, *model.Transaction, string) (*adapter.CancelResult, error) {
+	return &adapter.CancelResult{Status: adapter.CancelStatusUnsupported}, nil
+}
+
 func (namedProvider) ValidateCredentials(context.Context) error {
 	return nil
-}
-
-func TestResolveProviderKeyFirstClassAndLegacyXendit(t *testing.T) {
-	registry := adapter.NewRegistry()
-	registry.Register(namedProvider{name: model.ProviderXendit})
-	registry.Register(namedProvider{name: model.ProviderKomoju})
-
-	tests := []struct {
-		name string
-		req  *pb.CreatePaymentIntentRequest
-		want string
-	}{
-		{
-			name: "first class xendit",
-			req:  &pb.CreatePaymentIntentRequest{Provider: pb.Provider_PROVIDER_XENDIT},
-			want: model.ProviderXendit,
-		},
-		{
-			name: "legacy custom xendit",
-			req:  &pb.CreatePaymentIntentRequest{Provider: pb.Provider_PROVIDER_CUSTOM, CustomProviderName: "xendit"},
-			want: model.ProviderXendit,
-		},
-		{
-			name: "first class dana",
-			req:  &pb.CreatePaymentIntentRequest{Provider: pb.Provider_PROVIDER_DANA},
-			want: model.ProviderDana,
-		},
-		{
-			name: "first class komoju",
-			req:  &pb.CreatePaymentIntentRequest{Provider: pb.Provider_PROVIDER_KOMOJU},
-			want: model.ProviderKomoju,
-		},
-		{
-			name: "legacy custom komoju",
-			req:  &pb.CreatePaymentIntentRequest{Provider: pb.Provider_PROVIDER_CUSTOM, CustomProviderName: "komoju"},
-			want: model.ProviderKomoju,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveProviderKey(tt.req, registry); got != tt.want {
-				t.Fatalf("resolveProviderKey() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMapProviderFirstClassXendit(t *testing.T) {
-	if got := mapProvider(model.ProviderXendit); got != pb.Provider_PROVIDER_XENDIT {
-		t.Fatalf("mapProvider(xendit) = %v, want PROVIDER_XENDIT", got)
-	}
-}
-
-func TestMapProviderFirstClassKomoju(t *testing.T) {
-	if got := mapProvider(model.ProviderKomoju); got != pb.Provider_PROVIDER_KOMOJU {
-		t.Fatalf("mapProvider(komoju) = %v, want PROVIDER_KOMOJU", got)
-	}
 }
 
 func TestCancelSelectedProviderForExistingTransactionClearsProvider(t *testing.T) {
@@ -148,7 +103,7 @@ func TestCancelSelectedProviderForExistingTransactionClearsProvider(t *testing.T
 		UserID:        "user-1",
 		Namespace:     "ns",
 		Status:        model.StatusPending,
-		Provider:      "refund_stub",
+		ProviderID:    "refund_stub",
 		ProviderTxID:  "provider-tx-1",
 		PaymentURL:    "https://pay.example.test/1",
 		CreatedAt:     time.Now(),
@@ -174,7 +129,7 @@ func TestCancelSelectedProviderForExistingTransactionClearsProvider(t *testing.T
 	if err != nil {
 		t.Fatalf("FindByID error: %v", err)
 	}
-	if got.Status != model.StatusPending || got.ProviderTxID != "" || got.PaymentURL != "" || got.Provider != "" {
+	if got.Status != model.StatusPending || got.ProviderTxID != "" || got.PaymentURL != "" || got.ProviderID != "" {
 		t.Fatalf("provider state was not cleared while preserving pending status: %+v", got)
 	}
 }
@@ -188,7 +143,7 @@ func TestCancelSelectedProviderAlreadyPaidDoesNotClearProvider(t *testing.T) {
 		UserID:        "user-1",
 		Namespace:     "ns",
 		Status:        model.StatusPending,
-		Provider:      "refund_stub",
+		ProviderID:    "refund_stub",
 		ProviderTxID:  "provider-tx-1",
 		PaymentURL:    "https://pay.example.test/1",
 		CreatedAt:     time.Now(),

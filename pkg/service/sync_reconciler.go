@@ -31,7 +31,7 @@ func newTransactionReconciler(txStore store.Store, registry *adapter.Registry, r
 func (r *transactionReconciler) syncTransaction(ctx context.Context, tx *model.Transaction) *pb.SyncTransactionResult {
 	result := &pb.SyncTransactionResult{
 		TransactionId: tx.ID,
-		Provider:      resolveProviderName(tx),
+		ProviderId:    resolveProviderID(tx),
 		Outcome:       syncOutcomeUnchanged,
 		Message:       "provider state did not require local changes",
 	}
@@ -41,20 +41,13 @@ func (r *transactionReconciler) syncTransaction(ctx context.Context, tx *model.T
 		return result
 	}
 
-	prov, err := r.registry.Get(resolveProviderName(tx))
+	prov, err := r.registry.Get(resolveProviderID(tx))
 	if err != nil {
 		result.Outcome = syncOutcomeSyncFailed
-		result.Message = "unknown provider: " + resolveProviderName(tx)
+		result.Message = "unknown provider: " + resolveProviderID(tx)
 		return result
 	}
-	syncer, ok := prov.(adapter.TransactionSyncer)
-	if !ok {
-		result.Outcome = syncOutcomeUnsupported
-		result.Message = "provider does not support transaction sync"
-		return result
-	}
-
-	providerResult, err := syncer.SyncTransactionStatus(ctx, tx)
+	providerResult, err := prov.SyncTransactionStatus(ctx, tx)
 	if err != nil {
 		result.Outcome = syncOutcomeSyncFailed
 		result.Message = "provider sync failed: " + err.Error()

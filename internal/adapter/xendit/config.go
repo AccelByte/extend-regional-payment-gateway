@@ -15,6 +15,8 @@ const (
 
 // Config holds Xendit adapter configuration loaded from environment variables.
 type Config struct {
+	ProviderID        string
+	DisplayName       string
 	SecretAPIKey      string
 	CallbackToken     string
 	APIBaseURL        string
@@ -46,6 +48,8 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
+		ProviderID:        getEnv("XENDIT_PROVIDER_ID", "provider_xendit"),
+		DisplayName:       getEnv("XENDIT_DISPLAY_NAME", "Xendit"),
 		SecretAPIKey:      secret,
 		CallbackToken:     callbackToken,
 		APIBaseURL:        apiBaseURL,

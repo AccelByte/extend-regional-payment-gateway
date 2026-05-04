@@ -58,15 +58,11 @@ func (s *PaymentService) CancelSelectedProviderForExistingTransaction(ctx contex
 	if reason == "" {
 		reason = "user canceled selected provider"
 	}
-	prov, regErr := s.registry.Get(resolveProviderName(tx))
+	prov, regErr := s.registry.Get(resolveProviderID(tx))
 	if regErr != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "unknown provider: %s", resolveProviderName(tx))
+		return nil, status.Errorf(codes.FailedPrecondition, "unknown provider: %s", resolveProviderID(tx))
 	}
-	canceler, ok := prov.(adapter.PaymentCanceler)
-	if !ok {
-		return nil, status.Error(codes.FailedPrecondition, "provider cancellation is not supported for selected payment")
-	}
-	result, cancelErr := canceler.CancelPayment(ctx, tx, reason)
+	result, cancelErr := prov.CancelPayment(ctx, tx, reason)
 	if cancelErr != nil {
 		return nil, status.Errorf(codes.Unavailable, "provider cancel failed: %v", cancelErr)
 	}
@@ -118,15 +114,11 @@ func cancelPendingTransaction(ctx context.Context, txStore store.Store, registry
 	}
 	providerStatus := ""
 	if tx.ProviderTxID != "" {
-		prov, regErr := registry.Get(resolveProviderName(tx))
+		prov, regErr := registry.Get(resolveProviderID(tx))
 		if regErr != nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "unknown provider: %s", resolveProviderName(tx))
+			return nil, status.Errorf(codes.FailedPrecondition, "unknown provider: %s", resolveProviderID(tx))
 		}
-		canceler, ok := prov.(adapter.PaymentCanceler)
-		if !ok {
-			return nil, status.Error(codes.FailedPrecondition, "provider cancellation is not supported for selected payment")
-		}
-		result, cancelErr := canceler.CancelPayment(ctx, tx, reason)
+		result, cancelErr := prov.CancelPayment(ctx, tx, reason)
 		if cancelErr != nil {
 			return nil, status.Errorf(codes.Unavailable, "provider cancel failed: %v", cancelErr)
 		}

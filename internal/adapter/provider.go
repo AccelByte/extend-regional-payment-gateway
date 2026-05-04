@@ -45,6 +45,11 @@ type PaymentInitRequest struct {
 	ExpiryDuration  time.Duration
 }
 
+type ProviderInfo struct {
+	ID          string
+	DisplayName string
+}
+
 type PaymentIntent struct {
 	ProviderTransactionID string
 	PaymentURL            string
@@ -82,10 +87,6 @@ type CancelResult struct {
 	RawProviderStatus string
 }
 
-type PaymentCanceler interface {
-	CancelPayment(ctx context.Context, tx *model.Transaction, reason string) (*CancelResult, error)
-}
-
 type SyncPaymentStatus string
 
 const (
@@ -119,10 +120,6 @@ type ProviderSyncResult struct {
 	Message            string
 }
 
-type TransactionSyncer interface {
-	SyncTransactionStatus(ctx context.Context, tx *model.Transaction) (*ProviderSyncResult, error)
-}
-
 // WebhookAcknowledger is an optional interface adapters implement when the provider
 // requires a specific JSON acknowledgement body in the webhook response.
 // The HTTP webhook handler checks for this interface after successful processing.
@@ -131,7 +128,7 @@ type WebhookAcknowledger interface {
 }
 
 // WebhookErrorAcknowledger is an optional interface adapters implement when the provider
-// expects a specific JSON body even on error responses (e.g. DANA's 5005601 format).
+// expects a specific JSON body even on error responses.
 // The HTTP webhook handler checks for this interface before writing a 500 error body.
 type WebhookErrorAcknowledger interface {
 	WebhookErrorAckBody() []byte
@@ -140,8 +137,11 @@ type WebhookErrorAcknowledger interface {
 // PaymentProvider is the extensibility contract for all payment providers.
 // The Generic HTTP Adapter implements this interface entirely via env vars.
 type PaymentProvider interface {
-	// Name returns the canonical provider slug (e.g. "generic_dana", "generic_shopeepay").
-	Name() string
+	// Info returns the stable provider ID and human display name.
+	Info() ProviderInfo
+
+	// ValidatePaymentInit validates provider-specific constraints before a transaction is created.
+	ValidatePaymentInit(req PaymentInitRequest) error
 
 	// CreatePaymentIntent creates a charge at the provider.
 	CreatePaymentIntent(ctx context.Context, req PaymentInitRequest) (*PaymentIntent, error)
@@ -149,6 +149,9 @@ type PaymentProvider interface {
 	// GetPaymentStatus queries the provider directly for the current payment status.
 	// Returns ErrNotSupported if the provider has no status query API.
 	GetPaymentStatus(ctx context.Context, providerTxID string) (*ProviderPaymentStatus, error)
+
+	// SyncTransactionStatus reconciles provider state into generic payment/refund sync statuses.
+	SyncTransactionStatus(ctx context.Context, tx *model.Transaction) (*ProviderSyncResult, error)
 
 	// ValidateWebhookSignature verifies the raw body + headers came from the legitimate provider.
 	// Must be called BEFORE any state mutation.
@@ -159,6 +162,9 @@ type PaymentProvider interface {
 
 	// RefundPayment initiates a refund at the provider.
 	RefundPayment(ctx context.Context, internalOrderID string, providerTxID string, amount int64, currencyCode string) error
+
+	// CancelPayment cancels a pending payment at the provider.
+	CancelPayment(ctx context.Context, tx *model.Transaction, reason string) (*CancelResult, error)
 
 	// ValidateCredentials performs a lightweight API call to verify credentials.
 	ValidateCredentials(ctx context.Context) error

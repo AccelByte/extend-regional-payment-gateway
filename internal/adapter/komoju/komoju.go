@@ -37,6 +37,12 @@ func New(cfg *Config) (*Adapter, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("komoju config is required")
 	}
+	if cfg.ProviderID == "" {
+		cfg.ProviderID = "provider_komoju"
+	}
+	if cfg.DisplayName == "" {
+		cfg.DisplayName = "KOMOJU"
+	}
 	if cfg.APIBaseURL == "" {
 		cfg.APIBaseURL = defaultAPIBaseURL
 	}
@@ -46,12 +52,23 @@ func New(cfg *Config) (*Adapter, error) {
 	}, nil
 }
 
-func (a *Adapter) Name() string { return "komoju" }
+func (a *Adapter) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: a.cfg.ProviderID, DisplayName: a.cfg.DisplayName}
+}
+
+func (a *Adapter) ValidatePaymentInit(req adapter.PaymentInitRequest) error {
+	currency := strings.ToUpper(strings.TrimSpace(req.CurrencyCode))
+	if _, ok := a.cfg.AllowedCurrencies[currency]; !ok {
+		return fmt.Errorf("komoju currency %q is not allowed; allowed=%v", currency, sortedCodes(a.cfg.AllowedCurrencies))
+	}
+	_, err := toKomojuAmount(req.Amount, currency)
+	return err
+}
 
 func (a *Adapter) CreatePaymentIntent(ctx context.Context, req adapter.PaymentInitRequest) (*adapter.PaymentIntent, error) {
 	currency := strings.ToUpper(strings.TrimSpace(req.CurrencyCode))
-	if _, ok := a.cfg.AllowedCurrencies[currency]; !ok {
-		return nil, fmt.Errorf("komoju currency %q is not allowed; allowed=%v", currency, sortedCodes(a.cfg.AllowedCurrencies))
+	if err := a.ValidatePaymentInit(req); err != nil {
+		return nil, err
 	}
 
 	expiresIn := int(req.ExpiryDuration.Seconds())

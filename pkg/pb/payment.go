@@ -57,52 +57,6 @@ func GetActionExtension(m proto.Message) Action {
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
-type Provider int32
-
-const (
-	Provider_PROVIDER_UNSPECIFIED Provider = 0
-	Provider_PROVIDER_CUSTOM      Provider = 4
-	Provider_PROVIDER_DANA        Provider = 5
-	Provider_PROVIDER_XENDIT      Provider = 6
-	Provider_PROVIDER_KOMOJU      Provider = 7
-)
-
-func (p Provider) String() string {
-	switch p {
-	case Provider_PROVIDER_CUSTOM:
-		return "PROVIDER_CUSTOM"
-	case Provider_PROVIDER_DANA:
-		return "dana"
-	case Provider_PROVIDER_XENDIT:
-		return "xendit"
-	case Provider_PROVIDER_KOMOJU:
-		return "komoju"
-	default:
-		return "PROVIDER_UNSPECIFIED"
-	}
-}
-
-func (p Provider) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + p.String() + `"`), nil
-}
-
-func (p *Provider) UnmarshalJSON(b []byte) error {
-	s := strings.Trim(string(b), `"`)
-	switch s {
-	case "PROVIDER_CUSTOM", "4":
-		*p = Provider_PROVIDER_CUSTOM
-	case "PROVIDER_DANA", "5":
-		*p = Provider_PROVIDER_DANA
-	case "PROVIDER_XENDIT", "6":
-		*p = Provider_PROVIDER_XENDIT
-	case "PROVIDER_KOMOJU", "7":
-		*p = Provider_PROVIDER_KOMOJU
-	default:
-		*p = Provider_PROVIDER_UNSPECIFIED
-	}
-	return nil
-}
-
 type TransactionStatus int32
 
 const (
@@ -162,13 +116,12 @@ func (s *TransactionStatus) UnmarshalJSON(b []byte) error {
 // ── Messages ─────────────────────────────────────────────────────────────────
 
 type CreatePaymentIntentRequest struct {
-	Provider           Provider `protobuf:"varint,1,opt,name=provider,proto3,enum=payment.v1.Provider" json:"provider,omitempty"`
-	ItemId             string   `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"itemId,omitempty"`
-	Quantity           int32    `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`
-	Description        string   `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	ClientOrderId      string   `protobuf:"bytes,5,opt,name=client_order_id,json=clientOrderId,proto3" json:"clientOrderId,omitempty"`
-	CustomProviderName string   `protobuf:"bytes,6,opt,name=custom_provider_name,json=customProviderName,proto3" json:"customProviderName,omitempty"`
-	RegionCode         string   `protobuf:"bytes,7,opt,name=region_code,json=regionCode,proto3" json:"regionCode,omitempty"`
+	ProviderId    string `protobuf:"bytes,1,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
+	ItemId        string `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"itemId,omitempty"`
+	Quantity      int32  `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	Description   string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	ClientOrderId string `protobuf:"bytes,5,opt,name=client_order_id,json=clientOrderId,proto3" json:"clientOrderId,omitempty"`
+	RegionCode    string `protobuf:"bytes,7,opt,name=region_code,json=regionCode,proto3" json:"regionCode,omitempty"`
 }
 
 func (x *CreatePaymentIntentRequest) Reset()         {}
@@ -200,7 +153,7 @@ type TransactionResponse struct {
 	TransactionId       string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transactionId,omitempty"`
 	UserId              string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"userId,omitempty"`
 	Namespace           string                 `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Provider            Provider               `protobuf:"varint,4,opt,name=provider,proto3,enum=payment.v1.Provider" json:"provider,omitempty"`
+	ProviderId          string                 `protobuf:"bytes,4,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
 	Amount              int64                  `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"`
 	ItemId              string                 `protobuf:"bytes,6,opt,name=item_id,json=itemId,proto3" json:"itemId,omitempty"`
 	Quantity            int32                  `protobuf:"varint,7,opt,name=quantity,proto3" json:"quantity,omitempty"`
@@ -209,7 +162,7 @@ type TransactionResponse struct {
 	ProviderTxId        string                 `protobuf:"bytes,10,opt,name=provider_tx_id,json=providerTxId,proto3" json:"providerTxId,omitempty"`
 	FailureReason       string                 `protobuf:"bytes,11,opt,name=failure_reason,json=failureReason,proto3" json:"failureReason,omitempty"`
 	RefundStatus        string                 `protobuf:"bytes,12,opt,name=refund_status,json=refundStatus,proto3" json:"refundStatus,omitempty"`
-	CustomProviderName  string                 `protobuf:"bytes,13,opt,name=custom_provider_name,json=customProviderName,proto3" json:"customProviderName,omitempty"`
+	ProviderDisplayName string                 `protobuf:"bytes,13,opt,name=provider_display_name,json=providerDisplayName,proto3" json:"providerDisplayName,omitempty"`
 	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"createdAt,omitempty"`
 	ExpiresAt           *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=expires_at,json=expiresAt,proto3" json:"expiresAt,omitempty"`
 	ItemName            string                 `protobuf:"bytes,16,opt,name=item_name,json=itemName,proto3" json:"itemName,omitempty"`
@@ -225,13 +178,13 @@ func (x *TransactionResponse) String() string { return x.TransactionId }
 func (x *TransactionResponse) ProtoMessage()  {}
 
 type WebhookRequest struct {
-	ProviderName string            `protobuf:"bytes,1,opt,name=provider_name,json=providerName,proto3" json:"providerName,omitempty"`
-	RawPayload   []byte            `protobuf:"bytes,2,opt,name=raw_payload,json=rawPayload,proto3" json:"rawPayload,omitempty"`
-	Headers      map[string]string `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	ProviderId string            `protobuf:"bytes,1,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
+	RawPayload []byte            `protobuf:"bytes,2,opt,name=raw_payload,json=rawPayload,proto3" json:"rawPayload,omitempty"`
+	Headers    map[string]string `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
 func (x *WebhookRequest) Reset()         {}
-func (x *WebhookRequest) String() string { return x.ProviderName }
+func (x *WebhookRequest) String() string { return x.ProviderId }
 func (x *WebhookRequest) ProtoMessage()  {}
 
 type WebhookResponse struct {
@@ -246,7 +199,7 @@ type ListTransactionsRequest struct {
 	Namespace    string            `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	UserId       string            `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"userId,omitempty"`
 	StatusFilter TransactionStatus `protobuf:"varint,3,opt,name=status_filter,json=statusFilter,proto3,enum=payment.v1.TransactionStatus" json:"statusFilter,omitempty"`
-	Provider     string            `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
+	ProviderId   string            `protobuf:"bytes,4,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
 	PageSize     int32             `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"pageSize,omitempty"`
 	Cursor       string            `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	Search       string            `protobuf:"bytes,7,opt,name=search,proto3" json:"search,omitempty"`
@@ -295,7 +248,7 @@ func (x *SyncTransactionRequest) ProtoMessage()  {}
 
 type SyncTransactionsRequest struct {
 	Namespace    string            `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Provider     string            `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	ProviderId   string            `protobuf:"bytes,2,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
 	StatusFilter TransactionStatus `protobuf:"varint,3,opt,name=status_filter,json=statusFilter,proto3,enum=payment.v1.TransactionStatus" json:"statusFilter,omitempty"`
 	PageSize     int32             `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"pageSize,omitempty"`
 	Cursor       string            `protobuf:"bytes,5,opt,name=cursor,proto3" json:"cursor,omitempty"`
@@ -307,7 +260,7 @@ func (x *SyncTransactionsRequest) ProtoMessage()  {}
 
 type SyncTransactionResult struct {
 	TransactionId      string `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transactionId,omitempty"`
-	Provider           string `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	ProviderId         string `protobuf:"bytes,2,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
 	ProviderTxId       string `protobuf:"bytes,3,opt,name=provider_tx_id,json=providerTxId,proto3" json:"providerTxId,omitempty"`
 	PaymentStatus      string `protobuf:"bytes,4,opt,name=payment_status,json=paymentStatus,proto3" json:"paymentStatus,omitempty"`
 	RefundStatus       string `protobuf:"bytes,5,opt,name=refund_status,json=refundStatus,proto3" json:"refundStatus,omitempty"`
@@ -350,10 +303,10 @@ func (x *PublicSyncTransactionRequest) String() string { return x.TransactionId 
 func (x *PublicSyncTransactionRequest) ProtoMessage()  {}
 
 type PublicSyncTransactionsRequest struct {
-	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Provider  string `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
-	PageSize  int32  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"pageSize,omitempty"`
-	Cursor    string `protobuf:"bytes,4,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	Namespace  string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	ProviderId string `protobuf:"bytes,2,opt,name=provider_id,json=providerId,proto3" json:"providerId,omitempty"`
+	PageSize   int32  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"pageSize,omitempty"`
+	Cursor     string `protobuf:"bytes,4,opt,name=cursor,proto3" json:"cursor,omitempty"`
 }
 
 func (x *PublicSyncTransactionsRequest) Reset()         {}

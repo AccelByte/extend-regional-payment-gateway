@@ -16,6 +16,8 @@ const (
 
 // Config holds KOMOJU adapter configuration loaded from environment variables.
 type Config struct {
+	ProviderID        string
+	DisplayName       string
 	SecretKey         string
 	WebhookSecret     string
 	APIVersion        string
@@ -38,6 +40,8 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
+		ProviderID:        getEnv("KOMOJU_PROVIDER_ID", "provider_komoju"),
+		DisplayName:       getEnv("KOMOJU_DISPLAY_NAME", "KOMOJU"),
 		SecretKey:         secret,
 		WebhookSecret:     webhookSecret,
 		APIVersion:        getEnv("KOMOJU_API_VERSION", defaultAPIVersion),

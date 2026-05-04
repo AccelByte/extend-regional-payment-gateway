@@ -144,7 +144,7 @@ func (s *Store) markTerminalIfPending(ctx context.Context, txnID, terminalStatus
 	return nil
 }
 
-func (s *Store) AttachProviderTransaction(ctx context.Context, txnID, provider, customProviderName, providerTxID, paymentURL string) error {
+func (s *Store) AttachProviderTransaction(ctx context.Context, txnID, providerID, providerDisplayName, providerTxID, paymentURL string) error {
 	now := time.Now().UTC()
 	res, err := s.coll.UpdateOne(
 		ctx,
@@ -157,8 +157,8 @@ func (s *Store) AttachProviderTransaction(ctx context.Context, txnID, provider, 
 			}},
 		},
 		bson.D{{Key: "$set", Value: bson.D{
-			{Key: "provider", Value: provider},
-			{Key: "custom_provider_name", Value: customProviderName},
+			{Key: "provider_id", Value: providerID},
+			{Key: "provider_display_name", Value: providerDisplayName},
 			{Key: "provider_tx_id", Value: providerTxID},
 			{Key: "payment_url", Value: paymentURL},
 			{Key: "updated_at", Value: now},
@@ -188,11 +188,11 @@ func (s *Store) ClearProviderTransactionIfPending(ctx context.Context, txnID, pr
 		},
 		bson.D{
 			{Key: "$set", Value: bson.D{
-				{Key: "provider", Value: ""},
+				{Key: "provider_id", Value: ""},
+				{Key: "provider_display_name", Value: ""},
 				{Key: "updated_at", Value: now},
 			}},
 			{Key: "$unset", Value: bson.D{
-				{Key: "custom_provider_name", Value: ""},
 				{Key: "provider_tx_id", Value: ""},
 				{Key: "payment_url", Value: ""},
 				{Key: "provider_status", Value: ""},
@@ -255,8 +255,8 @@ func (s *Store) ListTransactions(ctx context.Context, q store.ListQuery) ([]*mod
 	if len(q.StatusFilters) > 0 {
 		filter = append(filter, bson.E{Key: "status", Value: bson.D{{Key: "$in", Value: q.StatusFilters}}})
 	}
-	if q.Provider != "" {
-		filter = append(filter, bson.E{Key: "provider", Value: q.Provider})
+	if q.ProviderID != "" {
+		filter = append(filter, bson.E{Key: "provider_id", Value: q.ProviderID})
 	}
 	if search := strings.TrimSpace(q.Search); search != "" {
 		filter = append(filter, bson.E{Key: "$or", Value: bson.A{

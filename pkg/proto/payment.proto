@@ -15,14 +15,6 @@ import "permission.proto";
 
 // ─── Enums ─────────────────────────────────────────────────────────────────────
 
-enum Provider {
-  PROVIDER_UNSPECIFIED = 0;
-  PROVIDER_CUSTOM      = 4; // Generic HTTP Adapter — configured via GENERIC_{NAME}_* env vars
-  PROVIDER_DANA        = 5; // First-class DANA SDK adapter
-  PROVIDER_XENDIT      = 6; // First-class Xendit SDK adapter
-  PROVIDER_KOMOJU      = 7; // First-class KOMOJU Hosted Page adapter
-}
-
 enum TransactionStatus {
   TRANSACTION_STATUS_UNSPECIFIED = 0;
   PENDING                        = 1;
@@ -36,12 +28,11 @@ enum TransactionStatus {
 // ─── Payment Intent ─────────────────────────────────────────────────────────────
 
 message CreatePaymentIntentRequest {
-  Provider provider             = 1;
+  string   provider_id          = 1;
   string   item_id              = 2;
   int32    quantity             = 3;
   string   description          = 4;
   string   client_order_id      = 5;
-  string   custom_provider_name = 6; // required when provider = PROVIDER_CUSTOM
   string   region_code          = 7; // AGS store region code; defaults to ID when omitted
 }
 
@@ -64,7 +55,7 @@ message TransactionResponse {
   string            transaction_id  = 1;
   string            user_id         = 2;
   string            namespace       = 3;
-  Provider          provider        = 4;
+  string            provider_id     = 4;
   int64             amount          = 5;
   string            item_id         = 6;
   int32             quantity        = 7;
@@ -73,7 +64,7 @@ message TransactionResponse {
   string            provider_tx_id  = 10;
   string            failure_reason  = 11;
   string            refund_status   = 12;
-  string            custom_provider_name = 13;
+  string            provider_display_name = 13;
   google.protobuf.Timestamp created_at = 14;
   google.protobuf.Timestamp expires_at = 15;
   string            item_name      = 16;
@@ -87,7 +78,7 @@ message TransactionResponse {
 // ─── Webhook ──────────────────────────────────────────────────────────────────
 
 message WebhookRequest {
-  string              provider_name = 1;
+  string              provider_id   = 1;
   bytes               raw_payload   = 2;
   map<string, string> headers       = 3;
 }
@@ -102,7 +93,7 @@ message ListTransactionsRequest {
   string            namespace     = 1;
   string            user_id       = 2;
   TransactionStatus status_filter = 3;
-  string            provider      = 4;
+  string            provider_id   = 4;
   int32             page_size     = 5;
   string            cursor        = 6;
   string            search        = 7; // exact match against transaction_id, provider_tx_id, or item_id
@@ -131,7 +122,7 @@ message SyncTransactionRequest {
 
 message SyncTransactionsRequest {
   string            namespace     = 1;
-  string            provider      = 2;
+  string            provider_id   = 2;
   TransactionStatus status_filter = 3;
   int32             page_size     = 4;
   string            cursor        = 5;
@@ -139,7 +130,7 @@ message SyncTransactionsRequest {
 
 message SyncTransactionResult {
   string transaction_id       = 1;
-  string provider             = 2;
+  string provider_id          = 2;
   string provider_tx_id       = 3;
   string payment_status       = 4;
   string refund_status        = 5;
@@ -167,7 +158,7 @@ message PublicSyncTransactionRequest {
 
 message PublicSyncTransactionsRequest {
   string namespace = 1;
-  string provider  = 2;
+  string provider_id = 2;
   int32  page_size = 3;
   string cursor    = 4;
 }
@@ -280,7 +271,7 @@ service PublicService {
 service WebhookService {
   rpc HandleWebhook(WebhookRequest) returns (WebhookResponse) {
     option (google.api.http) = {
-      post: "/v1/webhook/{provider_name}"
+      post: "/v1/webhook/{provider_id}"
       body: "*"
     };
     option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {

@@ -66,16 +66,14 @@ func (s *PaymentService) CreatePaymentIntent(ctx context.Context, req *pb.Create
 	if req.ClientOrderId == "" {
 		return nil, status.Error(codes.InvalidArgument, "client_order_id is required")
 	}
-	if req.Provider == pb.Provider_PROVIDER_CUSTOM && req.CustomProviderName == "" {
-		return nil, status.Error(codes.InvalidArgument, "custom_provider_name is required when provider = PROVIDER_CUSTOM")
+	if strings.TrimSpace(req.ProviderId) == "" {
+		return nil, status.Error(codes.InvalidArgument, "provider_id is required")
 	}
 
-	// Resolve provider name — for PROVIDER_CUSTOM, try the bare name first (e.g. "dana"),
-	// then fall back to the "generic_" prefix (e.g. "generic_midtrans") for backwards compat.
-	providerKey := resolveProviderKey(req, s.registry)
-	prov, err := s.registry.Get(providerKey)
+	providerID := strings.TrimSpace(req.ProviderId)
+	prov, err := s.registry.Get(providerID)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "unknown provider: %s", providerKey)
+		return nil, status.Errorf(codes.InvalidArgument, "unknown provider: %s", providerID)
 	}
 
 	itemDetails, err := s.lookupItemDetails(req.ItemId, req.RegionCode)
@@ -83,10 +81,6 @@ func (s *PaymentService) CreatePaymentIntent(ctx context.Context, req *pb.Create
 		return nil, status.Errorf(codes.InvalidArgument, "failed to get item price: %v", err)
 	}
 	totalAmount := itemDetails.UnitPrice * int64(req.Quantity)
-	if err := validateProviderCurrency(providerKey, itemDetails.CurrencyCode); err != nil {
-		return nil, err
-	}
-
 	// Rate limit: max PENDING transactions per user
 	count, err := s.txStore.CountPendingByUser(ctx, s.cfg.ABNamespace, userID)
 	if err != nil {
@@ -102,23 +96,23 @@ func (s *PaymentService) CreatePaymentIntent(ctx context.Context, req *pb.Create
 	txID := uuid.New().String()
 
 	tx := &model.Transaction{
-		ID:                 txID,
-		ClientOrderID:      req.ClientOrderId,
-		UserID:             userID,
-		Namespace:          s.cfg.ABNamespace,
-		Provider:           providerKey,
-		CustomProviderName: req.CustomProviderName,
-		ItemName:           itemDetails.Name,
-		ItemID:             req.ItemId,
-		Quantity:           req.Quantity,
-		RegionCode:         itemDetails.RegionCode,
-		Amount:             totalAmount,
-		CurrencyCode:       itemDetails.CurrencyCode,
-		Status:             model.StatusPending,
-		CreatedAt:          now,
-		ExpiresAt:          expiresAt,
-		UpdatedAt:          now,
-		DeleteAt:           expiresAt.AddDate(0, 0, s.cfg.RecordRetentionDays),
+		ID:                  txID,
+		ClientOrderID:       req.ClientOrderId,
+		UserID:              userID,
+		Namespace:           s.cfg.ABNamespace,
+		ProviderID:          providerID,
+		ProviderDisplayName: prov.Info().DisplayName,
+		ItemName:            itemDetails.Name,
+		ItemID:              req.ItemId,
+		Quantity:            req.Quantity,
+		RegionCode:          itemDetails.RegionCode,
+		Amount:              totalAmount,
+		CurrencyCode:        itemDetails.CurrencyCode,
+		Status:              model.StatusPending,
+		CreatedAt:           now,
+		ExpiresAt:           expiresAt,
+		UpdatedAt:           now,
+		DeleteAt:            expiresAt.AddDate(0, 0, s.cfg.RecordRetentionDays),
 	}
 
 	// Insert row FIRST (prevents webhook-before-row race), then call provider
@@ -133,22 +127,26 @@ func (s *PaymentService) CreatePaymentIntent(ctx context.Context, req *pb.Create
 		return nil, status.Error(codes.Internal, "failed to create transaction")
 	}
 
-	callbackURL := fmt.Sprintf("%s%s/v1/webhook/%s", s.cfg.PublicBaseURL, s.cfg.BasePath, providerKey)
-	intent, err := prov.CreatePaymentIntent(ctx, adapter.PaymentInitRequest{
+	initReq := adapter.PaymentInitRequest{
 		InternalOrderID: txID,
 		UserID:          userID,
 		RegionCode:      itemDetails.RegionCode,
 		Amount:          totalAmount,
 		CurrencyCode:    itemDetails.CurrencyCode,
 		Description:     req.Description,
-		CallbackURL:     callbackURL,
+		CallbackURL:     fmt.Sprintf("%s%s/v1/webhook/%s", s.cfg.PublicBaseURL, s.cfg.BasePath, providerID),
 		ReturnURL:       returnURLWithTransactionID(s.cfg.PublicBaseURL+s.cfg.BasePath+"/payment-result", txID),
 		ExpiryDuration:  s.cfg.PaymentExpiryDefault,
-	})
+	}
+	if err := prov.ValidatePaymentInit(initReq); err != nil {
+		_ = s.txStore.DeleteTransaction(ctx, txID)
+		return nil, status.Errorf(codes.InvalidArgument, "invalid provider request: %v", err)
+	}
+	intent, err := prov.CreatePaymentIntent(ctx, initReq)
 	if err != nil {
 		// Clean up the PENDING row — no webhook can arrive for a failed provider call
 		_ = s.txStore.DeleteTransaction(ctx, txID)
-		slog.Error("CreatePaymentIntent provider call failed", "provider", providerKey, "error", err)
+		slog.Error("CreatePaymentIntent provider call failed", "provider_id", providerID, "error", err)
 		return nil, status.Errorf(codes.Unavailable, "payment provider unavailable: %v", err)
 	}
 
@@ -174,7 +172,7 @@ func (s *PaymentService) CreateCheckoutTransaction(ctx context.Context, req *pb.
 	return txToTransactionResponse(tx), nil
 }
 
-func (s *PaymentService) CreatePaymentForExistingTransaction(ctx context.Context, transactionID string, provider pb.Provider, customProviderName string, description string) (*pb.CreatePaymentIntentResponse, error) {
+func (s *PaymentService) CreatePaymentForExistingTransaction(ctx context.Context, transactionID string, providerID string, description string) (*pb.CreatePaymentIntentResponse, error) {
 	userID, err := userIDFromContext(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "missing user identity")
@@ -200,39 +198,38 @@ func (s *PaymentService) CreatePaymentForExistingTransaction(ctx context.Context
 		return nil, status.Error(codes.FailedPrecondition, "payment provider already selected")
 	}
 
-	req := &pb.CreatePaymentIntentRequest{
-		Provider:           provider,
-		CustomProviderName: customProviderName,
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "provider_id is required")
 	}
-	providerKey := resolveProviderKey(req, s.registry)
-	if err := validateProviderCurrency(providerKey, tx.CurrencyCode); err != nil {
-		return nil, err
-	}
-	prov, err := s.registry.Get(providerKey)
+	prov, err := s.registry.Get(providerID)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "unknown provider: %s", providerKey)
+		return nil, status.Errorf(codes.InvalidArgument, "unknown provider: %s", providerID)
 	}
 
-	callbackURL := fmt.Sprintf("%s%s/v1/webhook/%s", s.cfg.PublicBaseURL, s.cfg.BasePath, providerKey)
-	intent, err := prov.CreatePaymentIntent(ctx, adapter.PaymentInitRequest{
+	initReq := adapter.PaymentInitRequest{
 		InternalOrderID: tx.ID,
 		UserID:          tx.UserID,
 		RegionCode:      tx.RegionCode,
 		Amount:          tx.Amount,
 		CurrencyCode:    tx.CurrencyCode,
 		Description:     description,
-		CallbackURL:     callbackURL,
+		CallbackURL:     fmt.Sprintf("%s%s/v1/webhook/%s", s.cfg.PublicBaseURL, s.cfg.BasePath, providerID),
 		ReturnURL:       returnURLWithTransactionID(s.cfg.PublicBaseURL+s.cfg.BasePath+"/payment-result", tx.ID),
 		ExpiryDuration:  s.cfg.PaymentExpiryDefault,
-	})
+	}
+	if err := prov.ValidatePaymentInit(initReq); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid provider request: %v", err)
+	}
+	intent, err := prov.CreatePaymentIntent(ctx, initReq)
 	if err != nil {
 		deleteAt := time.Now().UTC().AddDate(0, 0, 7)
 		_ = s.txStore.MarkFailed(ctx, tx.ID, "payment provider unavailable: "+err.Error(), deleteAt)
-		slog.Error("CreatePaymentForExistingTransaction provider call failed", "provider", providerKey, "txn_id", tx.ID, "error", err)
+		slog.Error("CreatePaymentForExistingTransaction provider call failed", "provider_id", providerID, "txn_id", tx.ID, "error", err)
 		return nil, status.Errorf(codes.Unavailable, "payment provider unavailable: %v", err)
 	}
 
-	if err := s.txStore.AttachProviderTransaction(ctx, tx.ID, providerKey, customProviderName, intent.ProviderTransactionID, intent.PaymentURL); err != nil {
+	if err := s.txStore.AttachProviderTransaction(ctx, tx.ID, providerID, prov.Info().DisplayName, intent.ProviderTransactionID, intent.PaymentURL); err != nil {
 		if err == store.ErrNoDocuments {
 			current, findErr := s.txStore.FindByID(ctx, tx.ID)
 			if findErr == nil && current.ProviderTxID == intent.ProviderTransactionID {
@@ -274,8 +271,8 @@ func (s *PaymentService) GetTransaction(ctx context.Context, req *pb.GetTransact
 
 	// Live-poll provider status only for PENDING transactions; terminal states use stored value.
 	if tx.Status == model.StatusPending && tx.ProviderTxID != "" {
-		providerName := resolveProviderName(tx)
-		if prov, getErr := s.registry.Get(providerName); getErr == nil {
+		providerID := resolveProviderID(tx)
+		if prov, getErr := s.registry.Get(providerID); getErr == nil {
 			if ps, psErr := prov.GetPaymentStatus(ctx, tx.ProviderTxID); psErr == nil {
 				resp.ProviderStatus = string(ps.Status)
 			}
@@ -297,8 +294,8 @@ func (s *PaymentService) GetTransactionByClientOrder(ctx context.Context, client
 	resp := txToTransactionResponse(tx)
 
 	if tx.Status == model.StatusPending && tx.ProviderTxID != "" {
-		providerName := resolveProviderName(tx)
-		if prov, getErr := s.registry.Get(providerName); getErr == nil {
+		providerID := resolveProviderID(tx)
+		if prov, getErr := s.registry.Get(providerID); getErr == nil {
 			if ps, psErr := prov.GetPaymentStatus(ctx, tx.ProviderTxID); psErr == nil {
 				resp.ProviderStatus = string(ps.Status)
 			}
@@ -400,13 +397,6 @@ func normalizeAGSPrice(price int32, currencyType string) (int64, error) {
 	}
 }
 
-func validateProviderCurrency(providerKey string, currencyCode string) error {
-	if providerKey == model.ProviderDana && !strings.EqualFold(currencyCode, "IDR") {
-		return status.Errorf(codes.InvalidArgument, "provider dana only supports IDR currency, got %s", currencyCode)
-	}
-	return nil
-}
-
 func returnURLWithTransactionID(rawURL string, transactionID string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -483,27 +473,6 @@ func (s *PaymentService) createPendingTransaction(ctx context.Context, userID st
 	return tx, nil
 }
 
-func resolveProviderKey(req *pb.CreatePaymentIntentRequest, registry *adapter.Registry) string {
-	if req.Provider == pb.Provider_PROVIDER_CUSTOM {
-		// Try bare name first (e.g. "dana" for the SDK adapter),
-		// then fall back to "generic_" prefix for generic HTTP adapters.
-		if _, err := registry.Get(req.CustomProviderName); err == nil {
-			return req.CustomProviderName
-		}
-		return "generic_" + req.CustomProviderName
-	}
-	if req.Provider == pb.Provider_PROVIDER_DANA {
-		return model.ProviderDana
-	}
-	if req.Provider == pb.Provider_PROVIDER_XENDIT {
-		return model.ProviderXendit
-	}
-	if req.Provider == pb.Provider_PROVIDER_KOMOJU {
-		return model.ProviderKomoju
-	}
-	return req.Provider.String()
-}
-
 func userIDFromContext(ctx context.Context) (string, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -556,24 +525,24 @@ func txToCreateResponse(tx *model.Transaction) *pb.CreatePaymentIntentResponse {
 
 func txToTransactionResponse(tx *model.Transaction) *pb.TransactionResponse {
 	resp := &pb.TransactionResponse{
-		TransactionId:      tx.ID,
-		UserId:             tx.UserID,
-		Namespace:          tx.Namespace,
-		Provider:           mapProvider(tx.Provider),
-		Amount:             tx.Amount,
-		CurrencyCode:       tx.CurrencyCode,
-		ItemName:           tx.ItemName,
-		ItemId:             tx.ItemID,
-		Quantity:           tx.Quantity,
-		Status:             mapStatus(tx.Status),
-		ProviderTxId:       tx.ProviderTxID,
-		ProviderStatus:     tx.ProviderStatus,
-		FailureReason:      tx.FailureReason,
-		CustomProviderName: tx.CustomProviderName,
-		PaymentUrl:         tx.PaymentURL,
-		CreatedAt:          timestamppb.New(tx.CreatedAt),
-		ExpiresAt:          timestamppb.New(tx.ExpiresAt),
-		UpdatedAt:          timestamppb.New(tx.UpdatedAt),
+		TransactionId:       tx.ID,
+		UserId:              tx.UserID,
+		Namespace:           tx.Namespace,
+		ProviderId:          tx.ProviderID,
+		ProviderDisplayName: tx.ProviderDisplayName,
+		Amount:              tx.Amount,
+		CurrencyCode:        tx.CurrencyCode,
+		ItemName:            tx.ItemName,
+		ItemId:              tx.ItemID,
+		Quantity:            tx.Quantity,
+		Status:              mapStatus(tx.Status),
+		ProviderTxId:        tx.ProviderTxID,
+		ProviderStatus:      tx.ProviderStatus,
+		FailureReason:       tx.FailureReason,
+		PaymentUrl:          tx.PaymentURL,
+		CreatedAt:           timestamppb.New(tx.CreatedAt),
+		ExpiresAt:           timestamppb.New(tx.ExpiresAt),
+		UpdatedAt:           timestamppb.New(tx.UpdatedAt),
 	}
 	if tx.Refund != nil {
 		resp.RefundStatus = tx.Refund.Status
@@ -581,21 +550,6 @@ func txToTransactionResponse(tx *model.Transaction) *pb.TransactionResponse {
 		resp.RefundFailureReason = tx.Refund.FailureReason
 	}
 	return resp
-}
-
-func mapProvider(p string) pb.Provider {
-	switch p {
-	case model.ProviderDana:
-		return pb.Provider_PROVIDER_DANA
-	case model.ProviderXendit:
-		return pb.Provider_PROVIDER_XENDIT
-	case model.ProviderKomoju:
-		return pb.Provider_PROVIDER_KOMOJU
-	case "":
-		return pb.Provider_PROVIDER_UNSPECIFIED
-	default:
-		return pb.Provider_PROVIDER_CUSTOM
-	}
 }
 
 func mapStatus(s string) pb.TransactionStatus {

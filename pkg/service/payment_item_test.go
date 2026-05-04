@@ -175,12 +175,3 @@ func TestItemDetailsFromFullItemRejectsUnsupportedCurrencyType(t *testing.T) {
 		t.Fatal("expected unsupported currency type to return an error")
 	}
 }
-
-func TestValidateProviderCurrencyRejectsNonIDRDANA(t *testing.T) {
-	if err := validateProviderCurrency("dana", "USD"); err == nil {
-		t.Fatal("expected DANA to reject non-IDR currency")
-	}
-	if err := validateProviderCurrency("dana", "IDR"); err != nil {
-		t.Fatalf("expected DANA to accept IDR: %v", err)
-	}
-}

@@ -25,7 +25,7 @@ func TestAttachProviderTransaction(t *testing.T) {
 		t.Fatalf("CreateTransaction error: %v", err)
 	}
 
-	if err := mem.AttachProviderTransaction(ctx, tx.ID, "dana", "", "provider-tx-1", "https://pay.example.test/1"); err != nil {
+	if err := mem.AttachProviderTransaction(ctx, tx.ID, "provider_test", "", "provider-tx-1", "https://pay.example.test/1"); err != nil {
 		t.Fatalf("AttachProviderTransaction error: %v", err)
 	}
 
@@ -33,8 +33,8 @@ func TestAttachProviderTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID error: %v", err)
 	}
-	if got.Provider != "dana" || got.ProviderTxID != "provider-tx-1" || got.PaymentURL == "" {
-		t.Fatalf("unexpected provider attachment: provider=%q providerTxID=%q paymentURL=%q", got.Provider, got.ProviderTxID, got.PaymentURL)
+	if got.ProviderID != "provider_test" || got.ProviderTxID != "provider-tx-1" || got.PaymentURL == "" {
+		t.Fatalf("unexpected provider attachment: provider=%q providerTxID=%q paymentURL=%q", got.ProviderID, got.ProviderTxID, got.PaymentURL)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestAttachProviderTransactionRejectsSecondAttachment(t *testing.T) {
 		t.Fatalf("CreateTransaction error: %v", err)
 	}
 
-	err := mem.AttachProviderTransaction(ctx, tx.ID, "dana", "", "provider-tx-2", "https://pay.example.test/2")
+	err := mem.AttachProviderTransaction(ctx, tx.ID, "provider_test", "", "provider-tx-2", "https://pay.example.test/2")
 	if err != store.ErrNoDocuments {
 		t.Fatalf("expected ErrNoDocuments, got %v", err)
 	}
@@ -70,7 +70,7 @@ func TestClearProviderTransactionIfPending(t *testing.T) {
 		UserID:        "user-1",
 		Namespace:     "ns",
 		Status:        model.StatusPending,
-		Provider:      "xendit",
+		ProviderID:    "xendit",
 		ProviderTxID:  "ps-1",
 		PaymentURL:    "https://pay.example.test/ps-1",
 		CreatedAt:     time.Now(),
@@ -87,7 +87,7 @@ func TestClearProviderTransactionIfPending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByID error: %v", err)
 	}
-	if got.Provider != "" || got.ProviderTxID != "" || got.PaymentURL != "" {
+	if got.ProviderID != "" || got.ProviderTxID != "" || got.PaymentURL != "" {
 		t.Fatalf("provider state was not cleared: %+v", got)
 	}
 }
@@ -102,7 +102,7 @@ func TestListTransactionsExactSearch(t *testing.T) {
 			ClientOrderID: "order-1",
 			UserID:        "user-1",
 			Namespace:     "ns",
-			Provider:      "dana",
+			ProviderID:    "provider_test",
 			ProviderTxID:  "provider-1",
 			ItemID:        "item-a",
 			Status:        model.StatusFulfilled,
@@ -114,7 +114,7 @@ func TestListTransactionsExactSearch(t *testing.T) {
 			ClientOrderID: "order-2",
 			UserID:        "user-2",
 			Namespace:     "ns",
-			Provider:      "xendit",
+			ProviderID:    "xendit",
 			ProviderTxID:  "provider-2",
 			ItemID:        "item-a",
 			Status:        model.StatusPending,
@@ -126,7 +126,7 @@ func TestListTransactionsExactSearch(t *testing.T) {
 			ClientOrderID: "order-3",
 			UserID:        "user-1",
 			Namespace:     "other-ns",
-			Provider:      "dana",
+			ProviderID:    "provider_test",
 			ProviderTxID:  "provider-1",
 			ItemID:        "item-a",
 			Status:        model.StatusFulfilled,
@@ -157,7 +157,7 @@ func TestListTransactionsExactSearch(t *testing.T) {
 		},
 		{
 			name: "item id with provider and status filters",
-			q:    store.ListQuery{Namespace: "ns", Search: "item-a", Provider: "dana", StatusFilter: model.StatusFulfilled},
+			q:    store.ListQuery{Namespace: "ns", Search: "item-a", ProviderID: "provider_test", StatusFilter: model.StatusFulfilled},
 			want: []string{"txn-1"},
 		},
 		{

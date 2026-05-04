@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	dana "github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/dana"
 	komoju "github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/komoju"
 	xendit "github.com/accelbyte/extend-regional-payment-gateway/internal/adapter/xendit"
 )
@@ -17,7 +16,8 @@ var genericNameRegex = regexp.MustCompile(`^GENERIC_([A-Z0-9_]+)_AUTH_HEADER$`)
 
 // GenericProviderConfig holds all env-var configuration for one Generic HTTP provider.
 type GenericProviderConfig struct {
-	Name string
+	Name        string
+	DisplayName string
 
 	// Auth
 	AuthHeader string
@@ -26,7 +26,7 @@ type GenericProviderConfig struct {
 	// Payment intent
 	CreateIntentURL          string
 	CreateIntentBodyTemplate string
-	PaymentURLJSONPath       string // redirect URL (e.g. deep-link for DANA)
+	PaymentURLJSONPath       string // redirect URL or deep link returned by the provider
 	QRCodeDataJSONPath       string // QR string for QRIS-based providers (optional)
 	ProviderTxIDJSONPath     string
 
@@ -58,10 +58,10 @@ type GenericProviderConfig struct {
 	RefundBodyTemplate string
 
 	// Cancel (optional)
-	CancelURLTemplate  string
-	CancelMethod       string
-	CancelBodyTemplate string
-	CancelStatusPath   string
+	CancelURLTemplate   string
+	CancelMethod        string
+	CancelBodyTemplate  string
+	CancelStatusPath    string
 	CancelSuccessValues []string
 	CancelExpiredValues []string
 	CancelPaidValues    []string
@@ -85,9 +85,6 @@ type Config struct {
 
 	// Generic providers discovered at startup
 	GenericProviders map[string]*GenericProviderConfig
-
-	// DANAConfig is non-nil when DANA_PARTNER_ID is set in the environment.
-	DANAConfig *dana.Config
 
 	// XenditConfig is non-nil when XENDIT_SECRET_API_KEY is set in the environment.
 	XenditConfig *xendit.Config
@@ -113,10 +110,8 @@ type Config struct {
 	BasePath                    string
 	PluginGRPCServerAuthEnabled bool
 
-	// WebhookForceError makes every incoming webhook return a 5005601 error response
-	// without processing fulfillment. Set WEBHOOK_FORCE_ERROR=true during DANA
-	// certification to satisfy the "simulate internal server error" scenario, then
-	// unset it so DANA's retry receives the normal 2005600 success response.
+	// WebhookForceError makes every incoming webhook return an internal error
+	// without processing fulfillment.
 	WebhookForceError bool
 }
 
@@ -154,12 +149,6 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.GenericProviders = providers
-
-	danaConfig, err := dana.Load()
-	if err != nil {
-		return nil, fmt.Errorf("DANA config: %w", err)
-	}
-	cfg.DANAConfig = danaConfig
 
 	xenditConfig, err := xendit.Load()
 	if err != nil {
@@ -309,6 +298,7 @@ func loadGenericProvider(name string) (*GenericProviderConfig, error) {
 
 	return &GenericProviderConfig{
 		Name:                      name,
+		DisplayName:               getEnvDefault(opt("DISPLAY_NAME"), displayNameFromProviderID(name)),
 		AuthHeader:                authHeader,
 		AuthValue:                 authValue,
 		CreateIntentURL:           createURL,
@@ -345,6 +335,18 @@ func loadGenericProvider(name string) (*GenericProviderConfig, error) {
 		CancelPaidValues:          splitCSV(opt("CANCEL_PAID_VALUES")),
 		CancelPendingValues:       splitCSV(opt("CANCEL_PENDING_VALUES")),
 	}, nil
+}
+
+func displayNameFromProviderID(id string) string {
+	id = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(id)), "provider_")
+	parts := strings.FieldsFunc(id, func(r rune) bool { return r == '_' || r == '-' })
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
 }
 
 func splitCSV(raw string) []string {

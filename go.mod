@@ -4,7 +4,6 @@ go 1.24.0
 
 require (
 	github.com/AccelByte/accelbyte-go-sdk v0.85.0
-	github.com/dana-id/dana-go/v2 v2.1.5
 	github.com/go-openapi/loads v0.22.0
 	github.com/google/uuid v1.6.0
 	github.com/govalues/money v0.2.4
@@ -82,7 +81,6 @@ require (
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250422160041-2d3770c4ea7f // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250414145226-207652e42e2e // indirect
-	gopkg.in/validator.v2 v2.0.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

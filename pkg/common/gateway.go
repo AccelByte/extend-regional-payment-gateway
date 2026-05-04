@@ -36,7 +36,8 @@ type transactionHTTPResponse struct {
 	TransactionId       string `json:"transactionId"`
 	UserId              string `json:"userId"`
 	Namespace           string `json:"namespace"`
-	Provider            string `json:"provider,omitempty"`
+	ProviderId          string `json:"providerId,omitempty"`
+	ProviderDisplayName string `json:"providerDisplayName,omitempty"`
 	Amount              int64  `json:"amount"`
 	CurrencyCode        string `json:"currencyCode"`
 	ItemName            string `json:"itemName,omitempty"`
@@ -50,7 +51,6 @@ type transactionHTTPResponse struct {
 	RefundStatus        string `json:"refundStatus,omitempty"`
 	RefundReason        string `json:"refundReason,omitempty"`
 	RefundFailureReason string `json:"refundFailureReason,omitempty"`
-	CustomProviderName  string `json:"customProviderName,omitempty"`
 	CreatedAt           string `json:"createdAt,omitempty"`
 	UpdatedAt           string `json:"updatedAt,omitempty"`
 	ExpiresAt           string `json:"expiresAt,omitempty"`
@@ -259,16 +259,16 @@ func RegisterDirectHandlers(
 				return
 			}
 			var body struct {
-				Provider string `json:"provider"`
-				PageSize int32  `json:"pageSize"`
-				Cursor   string `json:"cursor"`
+				ProviderId string `json:"providerId"`
+				PageSize   int32  `json:"pageSize"`
+				Cursor     string `json:"cursor"`
 			}
 			json.NewDecoder(r.Body).Decode(&body)
 			resp, err := publicSvc.SyncMyTransactions(ctx, &pb.PublicSyncTransactionsRequest{
-				Namespace: ns,
-				Provider:  body.Provider,
-				PageSize:  body.PageSize,
-				Cursor:    body.Cursor,
+				Namespace:  ns,
+				ProviderId: body.ProviderId,
+				PageSize:   body.PageSize,
+				Cursor:     body.Cursor,
 			})
 			if err != nil {
 				writeErr(w, grpcErrToHTTP(err), err.Error())
@@ -353,7 +353,7 @@ func RegisterDirectHandlers(
 				Namespace:    ns,
 				UserId:       q.Get("userId"),
 				StatusFilter: parseTransactionStatus(q.Get("statusFilter")),
-				Provider:     q.Get("provider"),
+				ProviderId:   q.Get("providerId"),
 				Cursor:       q.Get("cursor"),
 				Search:       q.Get("search"),
 			}
@@ -389,7 +389,7 @@ func RegisterDirectHandlers(
 				return
 			}
 			var body struct {
-				Provider     string `json:"provider"`
+				ProviderId   string `json:"providerId"`
 				StatusFilter string `json:"statusFilter"`
 				PageSize     int32  `json:"pageSize"`
 				Cursor       string `json:"cursor"`
@@ -397,7 +397,7 @@ func RegisterDirectHandlers(
 			json.NewDecoder(r.Body).Decode(&body)
 			resp, err := adminSvc.SyncTransactions(ctx, &pb.SyncTransactionsRequest{
 				Namespace:    ns,
-				Provider:     body.Provider,
+				ProviderId:   body.ProviderId,
 				StatusFilter: parseTransactionStatus(body.StatusFilter),
 				PageSize:     body.PageSize,
 				Cursor:       body.Cursor,
@@ -560,7 +560,8 @@ func toHTTPTransaction(tx *pb.TransactionResponse) transactionHTTPResponse {
 		TransactionId:       tx.TransactionId,
 		UserId:              tx.UserId,
 		Namespace:           tx.Namespace,
-		Provider:            providerToJSON(tx.Provider),
+		ProviderId:          tx.ProviderId,
+		ProviderDisplayName: tx.ProviderDisplayName,
 		Amount:              tx.Amount,
 		CurrencyCode:        tx.CurrencyCode,
 		ItemName:            tx.ItemName,
@@ -574,7 +575,6 @@ func toHTTPTransaction(tx *pb.TransactionResponse) transactionHTTPResponse {
 		RefundStatus:        tx.RefundStatus,
 		RefundReason:        tx.RefundReason,
 		RefundFailureReason: tx.RefundFailureReason,
-		CustomProviderName:  tx.CustomProviderName,
 		CreatedAt:           timestampToJSON(tx.CreatedAt),
 		UpdatedAt:           timestampToJSON(tx.UpdatedAt),
 		ExpiresAt:           timestampToJSON(tx.ExpiresAt),
@@ -586,21 +586,6 @@ func unitPrice(amount int64, quantity int32) int64 {
 		return amount
 	}
 	return amount / int64(quantity)
-}
-
-func providerToJSON(provider pb.Provider) string {
-	switch provider {
-	case pb.Provider_PROVIDER_DANA:
-		return "dana"
-	case pb.Provider_PROVIDER_XENDIT:
-		return "xendit"
-	case pb.Provider_PROVIDER_KOMOJU:
-		return "komoju"
-	case pb.Provider_PROVIDER_CUSTOM:
-		return "PROVIDER_CUSTOM"
-	default:
-		return ""
-	}
 }
 
 func timestampToJSON(ts *timestamppb.Timestamp) string {

@@ -62,7 +62,7 @@ func (s *AdminService) ListTransactions(ctx context.Context, req *pb.ListTransac
 		Namespace:    req.Namespace,
 		UserID:       req.UserId,
 		StatusFilter: statusFilterString(req.StatusFilter),
-		Provider:     req.Provider,
+		ProviderID:   req.ProviderId,
 		Search:       strings.TrimSpace(req.Search),
 		PageSize:     req.PageSize,
 		Cursor:       req.Cursor,
@@ -100,8 +100,8 @@ func (s *AdminService) GetTransactionDetail(ctx context.Context, req *pb.GetTran
 	resp := txToTransactionResponse(tx)
 
 	if tx.ProviderTxID != "" {
-		providerName := resolveProviderName(tx)
-		if prov, getErr := s.registry.Get(providerName); getErr == nil {
+		providerID := resolveProviderID(tx)
+		if prov, getErr := s.registry.Get(providerID); getErr == nil {
 			if ps, psErr := prov.GetPaymentStatus(ctx, tx.ProviderTxID); psErr == nil {
 				resp.ProviderStatus = string(ps.Status)
 			}
@@ -136,13 +136,13 @@ func (s *AdminService) Refund(ctx context.Context, req *pb.RefundRequest) (*pb.R
 	}
 	// Step 2: Call provider refund API unless a previous attempt already
 	// completed provider-side refund and failed during AGS reversal.
-	providerName := resolveProviderName(tx)
-	prov, regErr := s.registry.Get(providerName)
+	providerID := resolveProviderID(tx)
+	prov, regErr := s.registry.Get(providerID)
 	if regErr != nil {
-		if markErr := s.txStore.MarkRefundFailed(ctx, tx.ID, "unknown provider: "+providerName); markErr != nil {
+		if markErr := s.txStore.MarkRefundFailed(ctx, tx.ID, "unknown provider: "+providerID); markErr != nil {
 			slog.Error("Refund: MarkRefundFailed failed", "txn_id", tx.ID, "error", markErr)
 		}
-		return nil, status.Errorf(codes.Internal, "unknown provider: %s", providerName)
+		return nil, status.Errorf(codes.Internal, "unknown provider: %s", providerID)
 	}
 
 	if tx.Refund == nil || !tx.Refund.ProviderRefunded {
@@ -203,7 +203,7 @@ func (s *AdminService) SyncTransactions(ctx context.Context, req *pb.SyncTransac
 
 	txns, nextCursor, err := s.txStore.ListTransactions(ctx, store.ListQuery{
 		Namespace:    req.Namespace,
-		Provider:     req.Provider,
+		ProviderID:   req.ProviderId,
 		StatusFilter: statusFilterString(req.StatusFilter),
 		PageSize:     pageSize,
 		Cursor:       req.Cursor,
@@ -241,10 +241,7 @@ func statusFilterString(s pb.TransactionStatus) string {
 	}
 }
 
-// resolveProviderName returns the registry key for a transaction's adapter.
-func resolveProviderName(tx *model.Transaction) string {
-	if tx.Provider == model.ProviderCustom && tx.CustomProviderName != "" {
-		return "generic_" + tx.CustomProviderName
-	}
-	return tx.Provider
+// resolveProviderID returns the registry key for a transaction's adapter.
+func resolveProviderID(tx *model.Transaction) string {
+	return tx.ProviderID
 }

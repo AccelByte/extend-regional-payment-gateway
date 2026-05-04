@@ -35,7 +35,10 @@ type refundAdapter struct {
 	cancelCalls        int
 }
 
-func (r *refundAdapter) Name() string { return "refund_stub" }
+func (r *refundAdapter) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: "refund_stub", DisplayName: "Refund Stub"}
+}
+func (r *refundAdapter) ValidatePaymentInit(adapter.PaymentInitRequest) error { return nil }
 func (r *refundAdapter) CreatePaymentIntent(context.Context, adapter.PaymentInitRequest) (*adapter.PaymentIntent, error) {
 	return nil, errors.New("not implemented")
 }
@@ -436,7 +439,7 @@ func TestAdminSyncTransactions_FiltersByNamespaceProviderAndStatus(t *testing.T)
 
 	resp, err := svc.SyncTransactions(context.Background(), &pb.SyncTransactionsRequest{
 		Namespace:    "test-ns",
-		Provider:     "refund_stub",
+		ProviderId:   "refund_stub",
 		StatusFilter: pb.TransactionStatus_PENDING,
 		PageSize:     1000,
 	})
@@ -453,7 +456,9 @@ type namedRefundAdapter struct {
 	*refundAdapter
 }
 
-func (n namedRefundAdapter) Name() string { return n.name }
+func (n namedRefundAdapter) Info() adapter.ProviderInfo {
+	return adapter.ProviderInfo{ID: n.name, DisplayName: n.name}
+}
 
 func newRefundTestService(txStore *memstore.Store, prov *refundAdapter, fulfillment *syncFulfillment) *AdminService {
 	reg := adapter.NewRegistry()
@@ -488,7 +493,7 @@ func createSyncTransactionInNamespace(t *testing.T, txStore *memstore.Store, txI
 		ClientOrderID: "order-" + txID,
 		UserID:        "user-1",
 		Namespace:     namespace,
-		Provider:      provider,
+		ProviderID:    provider,
 		ItemID:        "item-1",
 		Quantity:      1,
 		Amount:        10000,
