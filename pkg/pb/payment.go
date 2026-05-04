@@ -171,6 +171,7 @@ type TransactionResponse struct {
 	RefundReason        string                 `protobuf:"bytes,19,opt,name=refund_reason,json=refundReason,proto3" json:"refundReason,omitempty"`
 	RefundFailureReason string                 `protobuf:"bytes,20,opt,name=refund_failure_reason,json=refundFailureReason,proto3" json:"refundFailureReason,omitempty"`
 	UpdatedAt           *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=updated_at,json=updatedAt,proto3" json:"updatedAt,omitempty"`
+	RegionCode          string                 `protobuf:"bytes,22,opt,name=region_code,json=regionCode,proto3" json:"regionCode,omitempty"`
 }
 
 func (x *TransactionResponse) Reset()         {}

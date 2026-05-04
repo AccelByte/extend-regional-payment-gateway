@@ -73,6 +73,7 @@ message TransactionResponse {
   string            refund_reason  = 19;
   string            refund_failure_reason = 20;
   google.protobuf.Timestamp updated_at = 21;
+  string            region_code    = 22;
 }
 
 // ─── Webhook ──────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -441,6 +442,9 @@ func (h *Handler) HandleCheckoutPage(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(infos, func(i, j int) bool { return infos[i].DisplayName < infos[j].DisplayName })
 	providers := make([]providerItem, 0, len(infos))
 	for _, info := range infos {
+		if !providerAllowedForCheckoutRegion(info.ID, sess.RegionCode) {
+			continue
+		}
 		display := fallback(info.DisplayName, displayName(info.ID))
 		providers = append(providers, providerItem{
 			Key:         info.ID,
@@ -634,6 +638,32 @@ func fallback(value string, fallbackValue string) string {
 		return value
 	}
 	return fallbackValue
+}
+
+func providerAllowedForCheckoutRegion(providerID string, regionCode string) bool {
+	raw := strings.TrimSpace(os.Getenv(regionAllowlistEnvName(providerID)))
+	if raw == "" {
+		return true
+	}
+	region := normalizeCheckoutRegion(regionCode)
+	for _, part := range strings.Split(raw, ",") {
+		if normalizeCheckoutRegion(part) == region {
+			return true
+		}
+	}
+	return false
+}
+
+func regionAllowlistEnvName(providerID string) string {
+	name := strings.TrimSpace(providerID)
+	name = strings.TrimPrefix(name, "provider_")
+	name = strings.NewReplacer("-", "_", ".", "_").Replace(name)
+	name = strings.ToUpper(name)
+	return "REGION_ALLOWLIST_PROVIDER_" + name
+}
+
+func normalizeCheckoutRegion(regionCode string) string {
+	return strings.ToUpper(strings.TrimSpace(regionCode))
 }
 
 func formatCurrencyAmount(amount int64, currencyCode string) string {

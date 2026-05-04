@@ -532,6 +532,7 @@ func txToTransactionResponse(tx *model.Transaction) *pb.TransactionResponse {
 		ProviderDisplayName: tx.ProviderDisplayName,
 		Amount:              tx.Amount,
 		CurrencyCode:        tx.CurrencyCode,
+		RegionCode:          tx.RegionCode,
 		ItemName:            tx.ItemName,
 		ItemId:              tx.ItemID,
 		Quantity:            tx.Quantity,

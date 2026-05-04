@@ -148,6 +148,9 @@ Core environment variables. Provider-specific variables are documented in each p
 | `PUBLIC_SYNC_COOLDOWN` | No | Minimum interval between user-triggered syncs. Default: `60s` | `60s` |
 | `WEBHOOK_MAX_AGE` | No | Reject webhooks older than this duration. Default: `5m` | `5m` |
 | `LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error`. Default: `info` | `info` |
+| `REGION_ALLOWLIST_PROVIDER_{NAME}` | No | Optional checkout display allowlist for one provider. `{NAME}` is the provider ID without `provider_`, uppercased, with separators converted to `_`. Empty or unset means the provider is shown for all checkout regions. | `REGION_ALLOWLIST_PROVIDER_XENDIT=ID,PH,SG` |
+
+> `REGION_ALLOWLIST_PROVIDER_{NAME}` only controls which providers are shown on the hosted checkout page (`/checkout/{checkout-id}`). It does not replace provider API validation such as allowed currencies or provider-specific country checks.
 
 ---
 

@@ -17,6 +17,7 @@ func TestStoreGetValidForSelectionDoesNotConsumeSession(t *testing.T) {
 		UnitPrice:     10000,
 		TotalPrice:    30000,
 		CurrencyCode:  "IDR",
+		RegionCode:    "ID",
 		ExpiresAt:     time.Now().Add(time.Minute),
 	})
 
@@ -29,6 +30,9 @@ func TestStoreGetValidForSelectionDoesNotConsumeSession(t *testing.T) {
 	}
 	if sess.ItemName != "Starter Pack" || sess.ItemID != "starter-pack" || sess.Quantity != 3 {
 		t.Fatalf("unexpected checkout details: %+v", sess)
+	}
+	if sess.RegionCode != "ID" {
+		t.Fatalf("unexpected region code: %s", sess.RegionCode)
 	}
 
 	if _, ok := store.GetValidForSelection(sessionID); !ok {

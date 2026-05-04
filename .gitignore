@@ -15,6 +15,7 @@ go.work
 
 # Env files — all ignored locally (use .env.local for local dev)
 .env*
+!.env.example
 
 # IDE
 .idea/

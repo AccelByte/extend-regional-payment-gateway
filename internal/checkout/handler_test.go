@@ -102,6 +102,7 @@ func TestHandleCheckoutPageRendersOrderDetailsAndProviders(t *testing.T) {
 		UnitPrice:     10500,
 		TotalPrice:    21000,
 		CurrencyCode:  "IDR",
+		RegionCode:    "ID",
 		ExpiresAt:     time.Now().Add(30 * time.Minute),
 	})
 
@@ -137,6 +138,83 @@ func TestHandleCheckoutPageRendersOrderDetailsAndProviders(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("rendered checkout page missing %q\nbody:\n%s", want, body)
 		}
+	}
+}
+
+func TestHandleCheckoutPageFiltersProvidersByRegionAllowlist(t *testing.T) {
+	t.Setenv("REGION_ALLOWLIST_PROVIDER_XENDIT", "ID,PH")
+	t.Setenv("REGION_ALLOWLIST_PROVIDER_KOMOJU", "JP")
+
+	store := NewStore(context.Background())
+	sessionID := store.Create(&Session{
+		TransactionID: "txn-123",
+		UserID:        "user-1",
+		ItemName:      "Crystal Pack",
+		ItemID:        "item-crystal-pack",
+		Quantity:      1,
+		UnitPrice:     10000,
+		TotalPrice:    10000,
+		CurrencyCode:  "IDR",
+		RegionCode:    " id ",
+		ExpiresAt:     time.Now().Add(30 * time.Minute),
+	})
+
+	registry := adapter.NewRegistry()
+	registry.Register(stubProvider{name: "provider_xendit"})
+	registry.Register(stubProvider{name: "provider_komoju"})
+	registry.Register(stubProvider{name: "provider_generic"})
+
+	handler := NewHandler(store, registry, &stubPaymentSvc{}, "/payment")
+	req := httptest.NewRequest(http.MethodGet, "/payment/checkout/"+sessionID, nil)
+	rec := httptest.NewRecorder()
+
+	handler.HandleCheckoutPage(rec, req)
+
+	body := rec.Body.String()
+	for _, want := range []string{"Xendit", "Generic"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("rendered checkout page missing eligible provider %q\nbody:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Komoju") {
+		t.Fatalf("rendered checkout page includes ineligible provider\nbody:\n%s", body)
+	}
+}
+
+func TestHandleCheckoutPageRendersEmptyStateWhenNoProvidersAllowedForRegion(t *testing.T) {
+	t.Setenv("REGION_ALLOWLIST_PROVIDER_XENDIT", "ID")
+	t.Setenv("REGION_ALLOWLIST_PROVIDER_KOMOJU", "JP")
+
+	store := NewStore(context.Background())
+	sessionID := store.Create(&Session{
+		TransactionID: "txn-123",
+		UserID:        "user-1",
+		ItemName:      "Crystal Pack",
+		ItemID:        "item-crystal-pack",
+		Quantity:      1,
+		UnitPrice:     10000,
+		TotalPrice:    10000,
+		CurrencyCode:  "USD",
+		RegionCode:    "US",
+		ExpiresAt:     time.Now().Add(30 * time.Minute),
+	})
+
+	registry := adapter.NewRegistry()
+	registry.Register(stubProvider{name: "provider_xendit"})
+	registry.Register(stubProvider{name: "provider_komoju"})
+
+	handler := NewHandler(store, registry, &stubPaymentSvc{}, "/payment")
+	req := httptest.NewRequest(http.MethodGet, "/payment/checkout/"+sessionID, nil)
+	rec := httptest.NewRecorder()
+
+	handler.HandleCheckoutPage(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "No payment methods are available right now.") {
+		t.Fatalf("rendered checkout page missing empty provider state\nbody:\n%s", body)
+	}
+	if strings.Contains(body, `name="provider" value="provider_`) {
+		t.Fatalf("rendered checkout page includes provider form despite empty eligible list\nbody:\n%s", body)
 	}
 }
 

@@ -21,6 +21,7 @@ type Session struct {
 	UnitPrice     int64
 	TotalPrice    int64
 	CurrencyCode  string
+	RegionCode    string
 	ExpiresAt     time.Time
 }
 

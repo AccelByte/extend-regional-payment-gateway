@@ -12,34 +12,38 @@ The Xendit adapter is a hosted checkout integration registered by default as pro
 
 The adapter creates a Xendit Payment Session via `POST /sessions` (`session_type=PAY`, `mode=PAYMENT_LINK`) and returns the `payment_link_url` as the checkout URL. The `payment_session_id` is stored as the provider transaction ID. Webhooks are validated via constant-time comparison of the `x-callback-token` header. Cancellation uses `POST /sessions/{payment_session_id}/cancel`. Refunds resolve the underlying `payment_request_id` from the session before calling the SDK `RefundApi.CreateRefund`. Sync queries session status, payment requests, payments V3, transaction history, and refund list to recover missed webhooks.
 
+## Note
+
+- When using Xendit in sandbox or test mode, configure your test item price and checkout region so the transaction uses IDR. Other currencies may be valid in live mode, but sandbox/test payments are expected to use IDR.
+
 ## Dashboard Setup
 
 1. Go to your Xendit admin dashboard.
 2. First, create a new API Key by going to Settings > API Keys.
 3. Click on the Generate Secret Key button to create a new API Key. Set the permission to:
 
-```text
-Money-in-products | WRITE
-Money-out-products | READ
-Transaction | READ
-```
+    ```text
+    Money-in-products | WRITE
+    Money-out-products | READ
+    Transaction | READ
+    ```
 
 4. Keep the API key somewhere safe. You will need this for the configuration later.
 5. Next, configure the webhook by going to Settings > Webhooks.
 6. Copy and keep the Webhook verification token somewhere safe. You will need this for the configuration later.
 7. Next, look for the Payment Session section. Fill the Payment Session Completed and Payment Session Expired fields with your Extend App URL by following the format below.
 
-```text
-{PUBLIC_BASE_URL}{BASE_PATH}/v1/webhook/provider_xendit
-```
+    ```text
+    {PUBLIC_BASE_URL}{BASE_PATH}/v1/webhook/provider_xendit
+    ```
 
-Example:
+    Example:
 
-```text
-https://abc123.ngrok-free.app/payment/v1/webhook/provider_xendit
-```
+    ```text
+    https://abc123.ngrok-free.app/payment/v1/webhook/provider_xendit
+    ```
 
-8. You are set.
+8. After saving the webhook URLs, make sure the webhook configuration is active, then copy the secret API key and webhook verification token into your Extend app environment variables. Restart the gateway after updating the environment so the Xendit adapter can load the new configuration.
 
 ## Configuration
 

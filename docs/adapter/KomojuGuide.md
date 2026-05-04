@@ -12,6 +12,10 @@ The KOMOJU adapter is a hosted checkout integration. It registers as `provider_k
 
 The adapter creates a KOMOJU Hosted Page Session via `POST /api/v1/sessions` and returns the `session_url` to the player as the checkout URL. Webhook events are validated with HMAC-SHA256 on the `X-Komoju-Signature` header. Payment status is polled via `GET /api/v1/sessions/{id}` or `GET /api/v1/payments/{id}`. Cancellation uses `POST /api/v1/sessions/{id}/cancel` and refunds use `POST /api/v1/payments/{id}/refund`.
 
+## Note
+
+- When using KOMOJU in sandbox or test mode, configure your test item price and checkout region so the transaction uses JPY. Other currencies may be valid in live mode, but sandbox/test payments are expected to use JPY.
+
 ## Dashboard Setup
 
 1. Go to your KOMOJU admin dashboard.
@@ -20,35 +24,35 @@ The adapter creates a KOMOJU Hosted Page Session via `POST /api/v1/sessions` and
 4. Then, create a new webhook or edit an existing one.
 5. Fill the Webhook URL with your Extend App URL by following the format below.
 
-```text
-{PUBLIC_BASE_URL}{BASE_PATH}/v1/webhook/provider_komoju
-```
+    ```text
+    {PUBLIC_BASE_URL}{BASE_PATH}/v1/webhook/provider_komoju
+    ```
 
-Example:
+    Example:
 
-```text
-https://abc123.ngrok-free.app/payment/v1/webhook/provider_komoju
-```
+    ```text
+    https://abc123.ngrok-free.app/payment/v1/webhook/provider_komoju
+    ```
 
 6. For the Secret Key, fill with any strong password and keep it somewhere safe. You will need this for the configuration later.
 7. Then, enable these webhook events:
 
-```text
-payment.authorized
-payment.captured
-payment.updated
-payment.expired
-payment.cancelled
-payment.refund.created
-payment.refunded
-payment.failed
-payment.marked.as.fraud
-settlement.created
-refund_request.updated
-```
+    ```text
+    payment.authorized
+    payment.captured
+    payment.updated
+    payment.expired
+    payment.cancelled
+    payment.refund.created
+    payment.refunded
+    payment.failed
+    payment.marked.as.fraud
+    settlement.created
+    refund_request.updated
+    ```
 
 8. Once done, click on the Save webhook button to save the config.
-9. You are set.
+9. After saving, make sure the webhook is active in the dashboard, then copy the API key and webhook secret into your Extend app environment variables. Restart the gateway after updating the environment so the KOMOJU adapter can load the new configuration.
 
 ## Configuration
 

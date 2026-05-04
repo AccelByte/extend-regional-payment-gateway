@@ -40,6 +40,7 @@ type transactionHTTPResponse struct {
 	ProviderDisplayName string `json:"providerDisplayName,omitempty"`
 	Amount              int64  `json:"amount"`
 	CurrencyCode        string `json:"currencyCode"`
+	RegionCode          string `json:"regionCode,omitempty"`
 	ItemName            string `json:"itemName,omitempty"`
 	ItemId              string `json:"itemId"`
 	Quantity            int32  `json:"quantity"`
@@ -531,18 +532,7 @@ func RegisterDirectHandlers(
 			writeErr(w, grpcErrToHTTP(err), err.Error())
 			return
 		}
-		sess := &checkout.Session{
-			TransactionID: tx.TransactionId,
-			UserID:        userID,
-			Description:   body.Description,
-			ItemName:      tx.ItemName,
-			ItemID:        tx.ItemId,
-			Quantity:      tx.Quantity,
-			UnitPrice:     unitPrice(tx.Amount, tx.Quantity),
-			TotalPrice:    tx.Amount,
-			CurrencyCode:  tx.CurrencyCode,
-			ExpiresAt:     time.Now().Add(checkout.CheckoutSessionExpiry),
-		}
+		sess := newCheckoutSessionFromTransaction(tx, userID, body.Description)
 		sessionID := checkoutStore.Create(sess)
 		checkoutURL := publicBaseURL + basePath + "/checkout/" + sessionID
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -564,6 +554,7 @@ func toHTTPTransaction(tx *pb.TransactionResponse) transactionHTTPResponse {
 		ProviderDisplayName: tx.ProviderDisplayName,
 		Amount:              tx.Amount,
 		CurrencyCode:        tx.CurrencyCode,
+		RegionCode:          tx.RegionCode,
 		ItemName:            tx.ItemName,
 		ItemId:              tx.ItemId,
 		Quantity:            tx.Quantity,
@@ -578,6 +569,22 @@ func toHTTPTransaction(tx *pb.TransactionResponse) transactionHTTPResponse {
 		CreatedAt:           timestampToJSON(tx.CreatedAt),
 		UpdatedAt:           timestampToJSON(tx.UpdatedAt),
 		ExpiresAt:           timestampToJSON(tx.ExpiresAt),
+	}
+}
+
+func newCheckoutSessionFromTransaction(tx *pb.TransactionResponse, userID, description string) *checkout.Session {
+	return &checkout.Session{
+		TransactionID: tx.TransactionId,
+		UserID:        userID,
+		Description:   description,
+		ItemName:      tx.ItemName,
+		ItemID:        tx.ItemId,
+		Quantity:      tx.Quantity,
+		UnitPrice:     unitPrice(tx.Amount, tx.Quantity),
+		TotalPrice:    tx.Amount,
+		CurrencyCode:  tx.CurrencyCode,
+		RegionCode:    tx.RegionCode,
+		ExpiresAt:     time.Now().Add(checkout.CheckoutSessionExpiry),
 	}
 }
 
