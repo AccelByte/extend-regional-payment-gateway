@@ -1,5 +1,7 @@
 # Extend Regional Payment Gateway
 
+![Banner](docs/images/banner.png)
+
 A payment gateway service extension for [AccelByte Game Services (AGS)](https://accelbyte.io) that connects your game economy to regional payment providers. It handles payment intent creation, webhook processing, item fulfillment, and refunds — so your players can pay with the methods they trust.
 
 ---
